@@ -1,0 +1,153 @@
+Overview
+This directory contains the GHDL simulation environment for the module:
+
+cmd_parser_slave_generic
+
+It provides a standalone testbench for validating the parser together with the generic slave model, using GHDL and GTKWave.
+
+This README focuses only on how to run the simulation.
+For parser architecture, command format, and slave behavior, please refer to the main project documentation.
+
+Directory Structure
+File / Directory	Description
+Makefile	Automation for compile, elaborate, run, and waveform visualization
+cmd.txt	Command sequence executed by the parser
+ram_init.cde	Initial RAM contents for the generic slave
+workdir/	GHDL working directory (object files, elaboration artifacts)
+wave.ghw / wave.vcd / wave.fst	Waveform output (format depends on Makefile settings)
+README.md	This document
+
+
+Requirements
+GHDL (LLVM or mcode backend recommended)
+
+GTKWave (for waveform visualization)
+
+MSYS2 / MINGW64 or Linux shell environment
+
+Standard VHDL‑93 support (used by the Makefile)
+
+Makefile Overview
+The Makefile supports:
+
+multiple VHDL standards (93, 93c, 2002, 2008)
+
+selectable waveform formats (ghw, vcd, fst)
+
+separate compilation of RTL and testbench
+
+elaboration of the top‑level testbench
+
+batch simulation
+
+interactive waveform viewing
+
+The default top‑level entity is:
+
+Codice
+tb_parser
+The default waveform format is:
+
+Codice
+ghw
+Running the Simulation
+Full simulation (compile + elaborate + run)
+Codice
+make all
+This performs:
+
+cleanup
+
+RTL compilation
+
+testbench compilation
+
+elaboration
+
+simulation
+
+Waveform output is generated according to the selected format.
+
+Batch simulation only
+Codice
+make sim
+Runs the testbench with:
+
+Codice
+ghdl -r tb_parser --wave=wave.ghw --stop-time=200us
+(Stop time can be adjusted in the Makefile.)
+
+Interactive simulation + waveform
+Codice
+make simwave
+This target:
+
+removes any previous waveform
+
+runs the simulation with --assert-level=note
+
+opens GTKWave automatically
+
+Useful for debugging.
+
+Waveform Viewing
+To manually open GTKWave:
+
+Codice
+make wave
+or:
+
+Codice
+gtkwave wave.ghw &
+Debug Logging
+Debug messages (severity note) are controlled by:
+
+vhdl
+constant ENABLE_DEBUG_LOG : boolean := false;
+Defined in:
+
+Codice
+cmd_cfg.vhd
+Debug OFF (default)
+suppresses all debug prints
+
+keeps warning, error, fatal always active
+
+Debug ON
+Set:
+
+vhdl
+ENABLE_DEBUG_LOG := true;
+GHDL supports severity filtering via --assert-level, but the recommended method is to control debug output directly in VHDL.
+
+Cleaning the Directory
+To remove generated files:
+
+Codice
+make clean
+This clears:
+
+workdir/*.o
+
+workdir/*.cf
+
+waveform files
+
+local .o / .cf artifacts
+
+Additional Documentation
+For complete information about:
+
+parser architecture
+
+command format (cmd.txt)
+
+generic slave behavior
+
+RAM model
+
+byte‑enable handling
+
+integration guidelines
+
+please refer to the main project documentation located in the root of the repository.

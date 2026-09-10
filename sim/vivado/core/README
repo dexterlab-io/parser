@@ -1,0 +1,87 @@
+README — Vivado Simulation Environment
+(Directory: parser/sim/vivado/core/)
+
+Overview
+This directory contains the Vivado simulation environment for the module:
+
+cmd_parser_slave_generic
+
+It provides a standalone testbench for validating the parser together with the generic slave model, using XSIM (Vivado Simulator).
+
+This README focuses only on how to run the simulation.
+For architectural details, command specifications, and slave behavior, refer to the main project documentation.
+
+Requirements
+Windows 10/11
+
+Vivado 2025.1 installed
+
+settings64.bat available in the Vivado installation directory
+
+MSYS2 / MINGW64 (optional, for Make)
+
+Environment Setup
+Before running any simulation, activate the Vivado environment:
+
+Codice
+vivado_env.bat
+This script loads settings64.bat and prepares the Vivado toolchain.
+
+Running the Simulation
+To compile, elaborate, and run the simulation in batch mode:
+
+Codice
+make xsim
+This will generate:
+
+xsim.dir/
+
+tb_parser_sim.wdb
+
+log files (xsim.log, xelab.log)
+
+Opening the GUI
+To open the waveform viewer:
+
+Codice
+make xsim_gui
+or:
+
+Codice
+xsim tb_parser_sim --gui
+The GUI requires the previously generated xsim.dir and .wdb files.
+
+Debug Logging
+Debug messages (severity note) can be enabled through:
+
+vhdl
+constant ENABLE_DEBUG_LOG : boolean := true;
+Defined in:
+
+Codice
+cmd_cfg.vhd
+Warnings, errors, and fatal messages are always active.
+
+Vivado/XSIM does not support severity filtering, so debug control is implemented directly in VHDL.
+
+Cleaning the Directory
+To remove generated files:
+
+Codice
+make clean
+Additional Documentation
+For complete information about:
+
+parser architecture
+
+command format (cmd.txt)
+
+generic slave behavior
+
+RAM model
+
+byte‑enable handling
+
+integration guidelines
+
+please refer to the main project documentation located in the root of the repository.
