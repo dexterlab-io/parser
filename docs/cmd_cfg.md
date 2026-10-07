@@ -55,7 +55,7 @@ Description
 C_MAX_DATA_TOKENS
 Maximum number of data tokens that a single micro‑command can contain.
 
-Important note from the source code:
+From the source code:
 
 “Il burst logico può essere > C_MAX_DATA_TOKENS (es. 1024),
 ma verrà spezzato in più micro‑burst in cmd_cmd_pkg.”
@@ -64,7 +64,7 @@ Meaning:
 
 A command like BURST_WRITE len=4096 is allowed.
 
-The parser will split it into multiple micro‑bursts of max 1024 tokens.
+The parser splits it into multiple micro‑bursts of max 1024 tokens.
 
 C_MAX_DATA_PER_LINE
 Maximum number of data tokens allowed per line in the command file.
@@ -81,11 +81,11 @@ constant C_MAX_MC : natural := 64;
 Description
 Maximum number of micro‑commands generated from a single command line.
 
-The comment in the code clarifies:
+From the source code:
 
 “Una singola riga (anche con burst grandi) non genera mai più di qualche decina di microcomandi; 64 è un valore ampiamente sufficiente.”
 
-This buffer is used internally by the parser engine to store:
+Used internally by the parser engine to store:
 
 split bursts
 
@@ -112,8 +112,7 @@ WAIT_CLOCKS
 
 AXI timeout logic inside backend executors
 
-These values define the maximum number of internal cycles before a timeout error
-is raised.
+Defines the maximum number of internal cycles before a timeout error is raised.
 
 6. Derived Constants
 vhdl
@@ -216,21 +215,21 @@ Internal buffer used by the parser to store a full command line.
 9. Summary
 cmd_cfg.vhd defines:
 
-global configuration parameters,
+global configuration parameters
 
-parser limits,
+parser limits
 
-burst splitting limits,
+burst splitting limits
 
-timeout values,
+timeout values
 
-atomic mode limits,
+atomic mode limits
 
-include depth,
+include depth
 
-base types,
+base types
 
-command source IDs.
+command source IDs
 
 These constants ensure consistent behavior across all DexterLab modules and
 provide a stable foundation for both simulation and future synthesizable

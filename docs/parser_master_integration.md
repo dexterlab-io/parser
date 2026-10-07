@@ -1,4 +1,6 @@
+markdown
 # DexterLab Parser Master Integration Guide
+
 This document explains how to integrate a hardware master (RISC‑V core, DMA
 engine, FPGA logic, microcontroller subsystem) with the DexterLab command parser
 using the `t_cmd_out` / `t_rsp_in` interface and the master arbiter.
@@ -43,7 +45,7 @@ flowchart LR
     A[Parser] --> C[t_cmd_out]
     B[Hardware Master] --> C
     C --> D[Master Arbiter]
-    D --> E[Backend (AXI/AHB)]
+    D --> E[Backend Executor]
     E --> D
     D --> F[t_rsp_in]
     F --> A
@@ -64,7 +66,7 @@ The hardware master must generate the following fields:
 Field	Description
 cmd_write	1 = write, 0 = read
 cmd_addr	target address
-cmd_len	number of beats
+cmd_len	number of beats (1–256)
 cmd_burst	INCR burst
 cmd_wrap	WRAP burst
 cmd_fifo	FIFO mode
@@ -76,10 +78,9 @@ cmd_valid	command valid
 cmd_ready	handshake
 
 
-The hardware master must follow the same handshake rules as the parser:
+Handshake rule:  
+cmd_valid = '1' AND cmd_ready = '1' → command accepted.
 
-Codice
-cmd_valid = 1 → arbiter accepts when cmd_ready = 1
 4. Response Interface (t_rsp_in)
 The hardware master receives:
 
@@ -93,7 +94,7 @@ rsp_err_info	failing address
 rsp_id	command ID
 
 
-The master must consume responses until rsp_last = 1.
+The master must consume responses until rsp_last = '1'.
 
 5. Arbiter Behavior
 The arbiter selects between:
@@ -153,13 +154,13 @@ The hardware master must:
 
 assert cmd_valid only when ready to send a full command
 
-wait for cmd_ready = 1
+wait for cmd_ready = '1'
 
 deassert cmd_valid after acceptance
 
 handle multi‑beat responses
 
-handle wait‑states from backend
+handle backend wait‑states
 
 handle error responses
 
@@ -171,54 +172,55 @@ no interleaving during atomic mode
 
 deterministic switching rules
 
-8. Integration with AXI/AHB Wrappers
-The master does not interact directly with AXI/AHB signals.
+8. Integration with Backends
+The master does not interact directly with AXI/AHB/TileLink signals.
 
 Instead:
 
 Codice
-master → arbiter → wrapper → backend → bus
-Wrappers convert commands into:
+master → arbiter → backend → bus
+Backends convert t_cmd_out into:
 
-AXI‑FULL
+AXI‑FULL transactions
 
-AXI‑LITE
+AXI‑Lite transactions
 
-AHB‑FULL
+AHB‑FULL transactions
 
-AHB‑LITE
+AHB‑Lite transactions
 
-depending on system configuration.
+TileLink UL/UH transactions (via TileLink Bridge)
+
+The master remains completely bus‑agnostic.
 
 9. Integration with TileLink (RISC‑V)
 The TileLink bridge converts TL transactions into t_cmd_out.
 
-Thus a RISC‑V core can generate DexterLab commands by performing:
+A RISC‑V core can generate DexterLab commands by performing:
 
-TL Get → READ
+TileLink Op	DexterLab Meaning
+TL Get	READ
+TL PutFull	WRITE
+TL PutPartial	masked WRITE
+TL Arithmetic	atomic
+TL Logical	atomic
+TL UH	burst/wrap
 
-TL PutFull → WRITE
 
-TL PutPartial → masked WRITE
-
-TL Arithmetic → atomic
-
-TL Logical → atomic
-
-TL UH → burst/wrap
-
-The arbiter handles TileLink commands exactly like parser commands.
+The arbiter handles TileLink‑generated commands exactly like parser commands.
 
 10. Recommended Master Architecture
 mermaid
 flowchart TD
-    A[Master FSM] --> B[Command Builder]
-    B --> C[t_cmd_out]
-    C --> D[Arbiter]
-    D --> E[Backend]
-    E --> D
-    D --> F[t_rsp_in]
-    F --> A
+    A[Interrupt Handler] --> B[Event Queue]
+    B --> C[Master FSM]
+    C --> D[Command Builder]
+    D --> E[t_cmd_out]
+    E --> F[Arbiter]
+    F --> G[Backend]
+    G --> F
+    F --> H[t_rsp_in]
+    H --> C
 The master should include:
 
 a command builder
@@ -244,12 +246,12 @@ is arbitrated together with the parser
 
 supports bursts, wrap, atomic, FIFO
 
-integrates with AXI/AHB/TileLink through wrappers
+integrates with AXI/AHB/TileLink through dedicated backends
 
 behaves exactly like a second parser source
 
-This makes DexterLab a dual‑source command engine, capable of executing
-commands from:
+This makes DexterLab a dual‑source command engine capable of executing commands
+from:
 
 text scripts
 

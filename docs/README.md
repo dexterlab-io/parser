@@ -1,6 +1,8 @@
+markdown
 # DexterLab Documentation
+
 This directory contains all documentation related to the DexterLab command
-system, parser, backends, wrappers, simulation environments, and future master
+system, parser, backends, simulation environments, and future master
 architectures.
 
 The documentation is organized to be modular, readable, and easy to navigate.
@@ -18,7 +20,8 @@ FIFO operations, atomic blocks, comments, and examples.
 ### Command Interface  
 **`cmd_interface.md`**  
 Formal definition of the hardware command interface (`t_cmd_out` / `t_rsp_in`),
-including handshake rules, timing, atomic mode, and response semantics.
+including handshake rules, timing, atomic mode, optional AXI‑Full signals, and
+response semantics.
 
 ### Error Model  
 **`cmd_errors.md`**  
@@ -53,6 +56,11 @@ Describes the supported simulation environments:
 Current minimal master implementation (continuous READ at `0x0000_0000`), used
 only for integration and future expansion.
 
+### Master Integration Guide  
+**`parser_master_integration.md`**  
+Explains how hardware masters (RISC‑V, DMA, FPGA logic) generate `t_cmd_out`
+commands and interact with the arbiter and backends.
+
 ### Master Roadmap  
 **`roadmap_master.md`**  
 Open-ended roadmap for future master implementations (SPI, I2C, UART, CAN,
@@ -60,20 +68,23 @@ RISC‑V, MAC Ethernet, 10BASE‑T1S, RCP, distributed systems).
 
 ---
 
-# 3. Backend and Wrapper Documentation
+# 3. Backend Documentation
 
 These documents describe how DexterLab commands are translated into bus
 transactions:
 
-- AXI-FULL backend  
-- AXI-LITE wrapper  
-- AHB-FULL backend  
-- AHB-LITE wrapper  
-- TileLink bridge  
-- arbiter  
-- generic backend  
+- **AXI-FULL backend**  
+- **AXI-LITE backend**  
+- **AHB-FULL backend**  
+- **AHB-LITE backend**  
+- **TileLink bridge**  
+- **Generic backend**  
+- **Arbiter (multi-source command selection)**  
 
-(Already present in the repository under `docs/`.)
+All backends implement the same `t_cmd_out` / `t_rsp_in` interface.
+
+Wrappers have been removed from the DexterLab architecture and replaced by
+dedicated backends.
 
 ---
 
@@ -103,9 +114,9 @@ If you are new to DexterLab:
 
 If you are integrating hardware:
 
-1. Read backend/wrapper documentation  
+1. Read backend documentation  
 2. Read arbiter documentation  
-3. Read master placeholder + roadmap  
+3. Read master placeholder + integration guide + roadmap  
 
 ---
 
@@ -119,8 +130,9 @@ The `docs/` directory contains:
 - complete execution flow  
 - DRY_RUN mode  
 - simulation environments (GHDL, Vivado, Cadence, Synopsys, Mentor, Aldec, etc.)  
-- master placeholder + roadmap  
-- backend/wrapper documentation  
+- master placeholder + integration guide + roadmap  
+- backend documentation (AXI-Full, AXI-Lite, AHB-Full, AHB-Lite, TileLink, Generic)  
+- arbiter documentation  
 
 This README provides the entry point for navigating all DexterLab documentation.
 

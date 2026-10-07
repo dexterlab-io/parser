@@ -6,6 +6,39 @@ Entries are listed from newest to oldest.
 
 ---
 
+## [1.0.1] – 2026-10-07
+### Added
+- Support for optional AXI-Full signals:
+  - AWLOCK, AWREGION, AWQOS
+  - ARLOCK, ARREGION, ARQOS
+- Improved error handling:
+  - Correct BRESP/RRESP mapping
+  - Correct propagation of backend error codes to the parser
+- Updated POLL/PING behavior:
+  - POLL/PING now correctly fails when the peripheral does not respond
+- Updated boundary checks:
+  - Correct 4KB boundary validation
+  - Correct burst alignment validation
+- Updated burst/wrap semantics:
+  - Correct wrap base and wrap size computation
+  - Correct handling of burst lengths up to 256 beats
+- GHDL compatibility improvements:
+  - Fixed integer range bound check failures
+  - Ensured consistent behavior across GHDL and Vivado/xsim
+
+### Changed
+- Documentation updated to reflect optional AXI-Full signal handling
+- Documentation updated for POLL/PING, burst, wrap, and FIFO semantics
+- Cleaned up internal signal naming and comments
+- Updated README and VERSION files
+
+### Notes
+This release improves AXI-Full integration, error propagation, and simulation
+compatibility.  
+It is a maintenance and correctness update over version 1.0.0.
+
+---
+
 ## [1.0.0] – 2026-09-10
 ### Added
 - Complete parser documentation:

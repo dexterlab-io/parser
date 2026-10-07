@@ -1,4 +1,5 @@
 # DexterLab Generic Backend
+
 The Generic Backend is the simplest executor in the DexterLab architecture.  
 It does not implement AXI, AHB, TileLink, or any bus protocol.  
 Instead, it provides a **pure simulation model** that executes commands directly
@@ -24,16 +25,16 @@ The Generic Backend receives commands through the standard interface:
 
 It implements:
 
-- WRITE
-- READ
-- CHECK
-- FIFO_WRITE / FIFO_READ / FIFO_CHECK
-- BURST_WRITE / BURST_READ / BURST_CHECK
-- WRAP_WRITE / WRAP_READ / WRAP_CHECK
-- FILL_LEN / FILL_RANGE / FILL_CHECK
-- DUMP_LEN / DUMP_RANGE
-- DUMP_FILE_LEN / RANGE / CHECK
-- POLL_READ / POLL_TOGGLE / POLL_PING
+- WRITE  
+- READ  
+- CHECK  
+- FIFO_WRITE / FIFO_READ / FIFO_CHECK  
+- BURST_WRITE / BURST_READ / BURST_CHECK  
+- WRAP_WRITE / WRAP_READ / WRAP_CHECK  
+- FILL_LEN / FILL_RANGE / FILL_CHECK  
+- DUMP_LEN / DUMP_RANGE  
+- DUMP_FILE_LEN / RANGE / CHECK  
+- POLL_READ / POLL_TOGGLE / POLL_PING  
 
 All operations are performed on **internal simulation memory**, not on a bus.
 
@@ -56,16 +57,16 @@ stateDiagram-v2
 3. Internal Memory Model
 The backend uses internal arrays:
 
-RAM memory for READ/WRITE/BURST/WRAP/FILL/DUMP
+RAM memory for READ / WRITE / BURST / WRAP / FILL / DUMP
 
-FIFO memory for FIFO_WRITE/FIFO_READ/FIFO_CHECK
+FIFO memory for FIFO_WRITE / FIFO_READ / FIFO_CHECK
 
 Typical structure:
 
 vhdl
 type t_ram is array(0 to RAM_SIZE-1) of std_logic_vector(C_DATA_WIDTH-1 downto 0);
 type t_fifo is array(0 to FIFO_SIZE-1) of std_logic_vector(C_DATA_WIDTH-1 downto 0);
-The actual sizes depend on the simulation environment.
+Actual sizes depend on the simulation environment.
 
 4. Command Execution Semantics
 4.1 WRITE
@@ -193,17 +194,17 @@ The backend simply executes commands in the order received.
 13. Summary
 The Generic Backend:
 
-is a pure simulation model,
+is a pure simulation model
 
-executes all commands directly on internal memory,
+executes all commands directly on internal memory
 
-supports bursts, wraps, FIFO, fill, dump, poll,
+supports bursts, wraps, FIFO, fill, dump, poll
 
-provides immediate responses,
+provides immediate responses
 
-is ideal for parser and arbiter testing,
+is ideal for parser and arbiter testing
 
-is not meant for synthesis.
+is not meant for synthesis
 
 It is the simplest and most flexible backend in DexterLab.
 

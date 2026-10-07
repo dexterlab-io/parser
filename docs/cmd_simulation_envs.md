@@ -1,8 +1,10 @@
+markdown
 # DexterLab Simulation Environments
+
 DexterLab supports two independent simulation environments:
 
 1. **GHDL** — lightweight, fast, ideal for parser and backend logic  
-2. **Vivado/xsim** — full-featured, ideal per AXI/AHB waveform-level simulation
+2. **Vivado/xsim** — full-featured, ideal for AXI/AHB waveform-level simulation
 
 Both environments execute the same VHDL sources and the same command parser, but
 serve different purposes and workflows.
@@ -33,10 +35,10 @@ Codice
 
 Each environment contains:
 
-- its own testbench files,
-- its own scripts,
-- its own waveform format,
-- its own compilation flow.
+- its own testbench files  
+- its own scripts  
+- its own waveform format  
+- its own compilation flow  
 
 The VHDL sources under `src/` are shared.
 
@@ -46,13 +48,13 @@ The VHDL sources under `src/` are shared.
 
 GHDL is used for:
 
-- fast iteration,
-- parser validation,
-- DRY_RUN testing,
-- backend logic testing,
-- arbiter testing,
-- command flow validation,
-- CI automation.
+- fast iteration  
+- parser validation  
+- DRY_RUN testing  
+- backend logic testing  
+- arbiter testing  
+- command flow validation  
+- CI automation  
 
 ### 2.1 Features
 
@@ -90,11 +92,13 @@ GHDL is the preferred environment for **logic-level** simulation.
 Vivado/xsim is used for:
 
 - AXI-FULL waveform simulation  
+- AXI-LITE waveform simulation  
 - AHB-FULL waveform simulation  
-- wrapper-level validation  
+- AHB-LITE waveform simulation  
+- TileLink bridge validation  
 - timing-level debugging  
 - bus protocol verification  
-- integration with IP cores  
+- integration with vendor IP cores  
 - waveform inspection with xsim or Vivado GUI  
 
 ### 3.1 Features
@@ -103,7 +107,7 @@ Vivado/xsim is used for:
 - `.wdb` waveform format  
 - full-featured waveform viewer  
 - supports complex bus timing  
-- ideal for wrapper/backend integration  
+- ideal for backend-level protocol validation  
 
 ### 3.2 Typical Workflow
 
@@ -118,8 +122,7 @@ Codice
 - verifying VALID/READY handshake  
 - verifying burst/wrap boundary rules  
 - verifying error propagation  
-- verifying wrapper behavior  
-- verifying TileLink bridge (future)  
+- verifying TileLink bridge behavior  
 - verifying integration with vendor IP  
 
 Vivado è l’ambiente preferito per **waveform-level** simulation.
@@ -149,7 +152,6 @@ Both environments use:
 - the same command packages  
 - the same backend logic  
 - the same arbiter  
-- the same wrappers  
 - the same `.cmd` files  
 - the same `t_cmd_out` / `t_rsp_in` interface  
 
@@ -159,6 +161,8 @@ The difference is only in:
 - scripts  
 - waveform format  
 - testbench style  
+
+Wrappers are no longer part of DexterLab 2026.
 
 ---
 
@@ -213,7 +217,7 @@ DexterLab provides two simulation environments:
 ### **Vivado/xsim**
 - accurate AXI/AHB timing  
 - vendor-level waveform  
-- ideal for wrapper/backend integration  
+- ideal for backend integration  
 - ideal for bus protocol debugging  
 
 Both environments use the same VHDL sources and the same command parser.
@@ -223,45 +227,46 @@ Both environments use the same VHDL sources and the same command parser.
 # 9. Other Supported Simulators (Cadence, Synopsys, Mentor, Aldec)
 
 DexterLab is fully compatible with any professional VHDL/Verilog simulator.
-The project does not depend on GHDL or Vivado-specific features.
 
 Users with commercial licenses may use:
 
-- **Cadence Xcelium**
-- **Synopsys VCS**
-- **Mentor QuestaSim**
-- **Aldec Riviera-PRO**
-- **ModelSim PE/SE**
-- **Any IEEE-compliant VHDL simulator**
+- **Cadence Xcelium**  
+- **Synopsys VCS**  
+- **Mentor QuestaSim**  
+- **Aldec Riviera-PRO**  
+- **ModelSim PE/SE**  
+- **Any IEEE-compliant VHDL simulator**  
 
 ### Requirements
 
 All simulators must support:
 
-- VHDL‑2008 (recommended)
-- standard `std_logic_1164` and `numeric_std`
-- hierarchical elaboration
-- record types
-- unconstrained arrays
-- packages and configurations
+- VHDL‑2008 (recommended)  
+- `std_logic_1164` and `numeric_std`  
+- hierarchical elaboration  
+- record types  
+- unconstrained arrays  
+- packages and configurations  
 
 ### Notes
 
-- DexterLab does not provide vendor-specific scripts for these simulators.
-- Users may create their own `.do`, `.tcl`, or shell scripts.
-- The parser, arbiter, wrappers, and backends require no vendor extensions.
-- DRY_RUN works identically in all simulators.
-- AXI/AHB timing accuracy depends on the simulator’s BFMs.
+- DexterLab does not provide vendor-specific scripts for these simulators.  
+- Users may create their own `.do`, `.tcl`, or shell scripts.  
+- The parser, arbiter, and backends require no vendor extensions.  
+- DRY_RUN works identically in all simulators.  
+- AXI/AHB timing accuracy depends on the simulator’s BFMs.  
 
 ### Typical Usage
 
 Users typically:
 
-1. compile all VHDL sources under `src/`
-2. compile the testbench under `sim/<custom>/`
-3. run simulation with their vendor tool
-4. load waveforms in the vendor GUI
+1. compile all VHDL sources under `src/`  
+2. compile the testbench under `sim/<custom>/`  
+3. run simulation with their vendor tool  
+4. load waveforms in the vendor GUI  
 
 DexterLab does not impose any restriction on simulator choice.
+
+---
 
 # End of Document

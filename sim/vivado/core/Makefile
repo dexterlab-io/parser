@@ -17,9 +17,12 @@
 TOP	= tb_parser
 
 clean:
-	rmdir /s /q .Xil
-	rmdir /s /q xsim.dir
-	del /f *.log *.jou *.pb *.wdb
+	if exist .Xil rmdir /s /q .Xil
+	if exist xsim.dir rmdir /s /q xsim.dir
+	if exist *.log del /f *.log
+	if exist *.jou del /f *.jou
+	if exist *.pb del /f *.pb
+	if exist *.wdb del /f *.wdb
 
 
 # ============================================================

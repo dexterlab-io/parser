@@ -1,4 +1,6 @@
+markdown
 # DexterLab Command Interface
+
 The DexterLab command interface defines the hardware protocol used to transmit
 commands (`t_cmd_out`) from the parser or hardware master to the arbiter and
 backend, and to receive responses (`t_rsp_in`) from the backend.
@@ -12,8 +14,8 @@ interfaces.
 
 DexterLab uses two record types:
 
-- `t_cmd_out` — command sent to the arbiter/backend
-- `t_rsp_in` — response returned by the backend
+- `t_cmd_out` — command sent to the arbiter/backend  
+- `t_rsp_in` — response returned by the backend  
 
 The interface is **bus‑agnostic**: AXI‑FULL, AXI‑LITE, AHB‑FULL, AHB‑LITE, and
 TileLink all use the same command format.
@@ -30,7 +32,7 @@ A command describes a single operation or a burst of operations.
 |-------|------|-------------|
 | `cmd_write` | std_logic | 1 = write, 0 = read |
 | `cmd_addr` | unsigned | start address |
-| `cmd_len` | natural | number of beats (1 = single) |
+| `cmd_len` | natural | number of beats (1–256) |
 | `cmd_burst` | std_logic | 1 = INCR burst |
 | `cmd_wrap` | std_logic | 1 = WRAP burst |
 | `cmd_fifo` | std_logic | 1 = FIFO mode |
@@ -40,6 +42,14 @@ A command describes a single operation or a burst of operations.
 | `cmd_wstrb` | std_logic_vector | byte mask |
 | `cmd_valid` | std_logic | command valid |
 | `cmd_ready` | std_logic | backend ready |
+
+Notes:
+
+- `cmd_len = 1` → single beat  
+- `cmd_len > 1` → burst  
+- `cmd_wrap = 1` → wrap burst (length must be power‑of‑two)  
+- `cmd_fifo = 1` → FIFO operations  
+- `cmd_atomic = 1` → arbiter locks the source  
 
 ---
 
@@ -74,9 +84,9 @@ Codice
 
 Rules:
 
-- `cmd_valid` must remain high until `cmd_ready = 1`.
-- After acceptance, the master may deassert `cmd_valid`.
-- Only one command may be active at a time.
+- `cmd_valid` must remain high until `cmd_ready = 1`.  
+- After acceptance, the master may deassert `cmd_valid`.  
+- Only one command may be active at a time.  
 
 ---
 
@@ -84,16 +94,16 @@ Rules:
 
 Responses are always accepted:
 
-rsp_out.rsp_ready = 1
-rsp_out.rsp_err_ready = 1
+rsp_ready = 1
+rsp_err_ready = 1
 
 Codice
 
 Rules:
 
-- `rsp_valid = 1` indicates a valid response beat.
-- `rsp_last = 1` indicates the final beat.
-- Errors may be signaled at any beat.
+- `rsp_valid = 1` indicates a valid response beat.  
+- `rsp_last = 1` indicates the final beat.  
+- Errors may be signaled at any beat.  
 
 ---
 
@@ -174,33 +184,35 @@ Codice
 ## 6.3 Error Response
 
 rsp_err_valid = 1
-rsp_err_code  = error code
-rsp_err_info  = failing address
+rsp_err_code  = <error>
+rsp_err_info  = <address>
 
 Codice
 
 Errors may occur:
 
-- at the first beat,
-- during a burst,
-- at the last beat.
+- at the first beat,  
+- during a burst,  
+- at the last beat.  
 
 ---
 
-# 7. Error Codes
-
-The backend defines error codes:
+# 7. Error Codes (Updated 2026)
 
 | Code | Meaning |
 |------|---------|
 | `0x00` | OKAY |
-| `0x01` | SLVERR |
-| `0x02` | DECERR |
-| `0x03` | BOUNDARY_ERR |
-| `0x04` | BURST_ERR |
+| `0x02` | SLVERR |
+| `0x03` | DECERR |
 | `0x05` | CHECK_ERR |
+| `0x06` | BOUNDARY_ERR |
+| `0x07` | BURST_ERR |
+| `0x08` | FIFO_ERR |
 
-Wrappers may map codes to simpler bus-specific values.
+Notes:
+
+- Codes are unified across AXI‑FULL, AXI‑LITE, AHB‑FULL, AHB‑LITE, Generic Backend.  
+- TileLink bridge maps TL errors into the same code set.  
 
 ---
 
@@ -210,9 +222,9 @@ Wrappers may map codes to simpler bus-specific values.
 
 This allows:
 
-- multiple masters,
-- out-of-order responses (AXI),
-- correlation of commands and responses.
+- multiple masters,  
+- out‑of‑order responses (AXI‑FULL),  
+- correlation of commands and responses.  
 
 ---
 
@@ -243,12 +255,12 @@ Codice
 
 The DexterLab command interface:
 
-- is bus‑agnostic,
-- supports single, burst, wrap, FIFO, and atomic operations,
-- uses a simple valid/ready handshake,
-- provides rich error reporting,
-- supports multiple masters via `cmd_id`,
-- is designed for simulation and hardware integration.
+- is bus‑agnostic  
+- supports single, burst, wrap, FIFO, and atomic operations  
+- uses a simple valid/ready handshake  
+- provides unified error reporting  
+- supports multiple masters via `cmd_id`  
+- is designed for simulation and hardware integration  
 
 This document defines the complete hardware protocol used by the parser,
 arbiter, backend, and future masters.

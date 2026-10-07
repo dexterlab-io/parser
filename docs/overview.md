@@ -1,14 +1,15 @@
+markdown
 # DexterLab Command Parser — Overview
 
-The *DexterLab Command Parser* is a unified command‑execution framework designed to
-provide a simple, consistent, and bus‑agnostic control interface for hardware
+The *DexterLab Command Parser* is a unified command‑execution framework designed
+to provide a simple, consistent, and bus‑agnostic control interface for hardware
 modules. The parser receives structured commands, decodes them into a standard
-VHDL record (`t_cmd_out`), and forwards them to a backend *slave* module that
-executes the requested operation on registers, RAM, FIFO, or custom peripherals.
+VHDL record (`t_cmd_out`), and forwards them to a backend module that executes
+the requested operation on registers, RAM, FIFO, or custom peripherals.
 
-The project aims to offer a scalable and extensible command infrastructure that
-can operate over multiple bus technologies (Generic, AXI, AHB) while preserving a
-single, stable command interface.
+The project offers a scalable and extensible command infrastructure that operates
+over multiple bus technologies (Generic, AXI, AHB) while preserving a single,
+stable command interface.
 
 ---
 
@@ -17,26 +18,27 @@ single, stable command interface.
 The command parser system is composed of three main elements:
 
 - **Parser Engine**  
-  Interprets incoming commands (from testbench, firmware, debug tools) and
+  Interprets incoming commands (from `.cmd` files, testbench, firmware) and
   produces a normalized command structure.
 
-- **Slave Backend**  
+- **Backend Executor**  
   Executes the decoded command. Multiple backends exist:
-  - `parser_slave_generic` (current implementation)
-  - `parser_axi_full` (in development)
-  - `parser_axi_lite` (planned)
-  - `parser_ahb_full` (planned)
-  - `parser_ahb_lite` (planned)
+  - `backend_generic` (current implementation)
+  - `backend_axi_full`
+  - `backend_axi_lite`
+  - `backend_ahb_full`
+  - `backend_ahb_lite`
+  - `tilelink_bridge` (protocol conversion)
 
-- **Master + Arbiter (future)**  
+- **Master + Arbiter**  
   Allows multiple command sources (parser, CPU, DMA, RISC‑V core, etc.) to share
-  the command interface through arbitration. A placeholder implementation already
-  exists in the testbench.
+  the command interface through arbitration.
 
 Conceptual diagram:
 
-Parser → Arbiter → Slave → (REG / RAM / FIFO)
+Parser → Arbiter → Backend → (REG / RAM / FIFO / Bus)
 
+Codice
 
 ---
 
@@ -44,9 +46,9 @@ Parser → Arbiter → Slave → (REG / RAM / FIFO)
 
 - Provide a **consistent** and **bus‑independent** command interface.
 - Support complex operations (burst, wrap, FIFO, WSTRB).
-- Emulate AXI semantics even without an AXI bus.
-- Offer a lightweight backend for simulation and prototyping.
-- Prepare the infrastructure for full AXI‑Full, AXI‑Lite, AHB‑Full, and AHB‑Lite versions.
+- Offer lightweight backends for simulation and prototyping.
+- Provide full AXI‑Full, AXI‑Lite, AHB‑Full, and AHB‑Lite support.
+- Provide TileLink integration through a dedicated bridge.
 - Document every component clearly for external users.
 
 ---
@@ -61,7 +63,6 @@ The file `cmd_cfg.vhd` defines all global configuration parameters:
 - burst limits
 - parser configuration options
 - backend configuration options
-- future AXI/AHB‑related parameters
 
 This file is the central point for adapting the parser to different systems.
 
@@ -72,59 +73,66 @@ Full documentation:
 
 ## 4. Available Backends
 
-### ✔ `parser_slave_generic`
-A simple backend without AXI handshake, but with AXI‑like semantics:
+### ✔ `backend_generic`
+A simple backend without AXI/AHB handshake, but with AXI‑like semantics:
 
 - INCR / WRAP / FIFO bursts  
 - WSTRB write support  
 - 4‑KB boundary check  
-- AXI‑style error codes (OKAY, SLVERR, DECERR)  
-- parser‑specific errors (BOUNDARY_ERR, BURST_ERR)
+- unified error codes (OKAY, SLVERR, DECERR, BOUNDARY_ERR, BURST_ERR)
 
-### ✔ `parser_axi_full` (in development)
+### ✔ `backend_axi_full`
 A full AXI4 backend:
 
 - AW/W/B and AR/R handshake  
 - timeout handling  
-- real AXI BRESP/RRESP  
+- AXI BRESP/RRESP  
 - full AXI burst support  
 - multi‑ID support
 
-### ✔ `parser_axi_lite` (planned)
-A lightweight AXI‑Lite backend, typically used for register‑mapped peripherals.
+### ✔ `backend_axi_lite`
+A lightweight AXI‑Lite backend:
 
-### ✔ `parser_ahb_full` (planned)
-A full AHB backend with:
+- single‑beat transfers  
+- WSTRB support  
+- ideal for MMIO registers
+
+### ✔ `backend_ahb_full`
+A full AHB backend:
 
 - pipelined address/data phases  
 - HTRANS, HBURST, HSIZE  
 - full burst semantics
 
-### ✔ `parser_ahb_lite` (planned)
+### ✔ `backend_ahb_lite`
 An AHB‑Lite backend:
 
 - single‑cycle transfers  
 - wait‑state insertion  
 - simplified burst support
 
+### ✔ `tilelink_bridge`
+Converts TileLink UL/UH transactions into `t_cmd_out` commands.
+
 ---
 
-## 5. Future Wrappers and Bridges
+## 5. Protocol Conversion
 
-The architecture is designed to support protocol conversion:
+DexterLab supports protocol conversion through dedicated modules:
 
-- **AXI‑Full → AXI‑Lite wrapper**  
-- **AHB‑Full → AHB‑Lite wrapper**  
-- **AXI → AHB bridge**  
-- **AHB → AXI bridge**
+- **TileLink → AXI**  
+- **TileLink → AHB**  
+- **AXI → TileLink**  
+- **AHB → TileLink**
 
-These modules will allow the same command parser to drive heterogeneous systems.
+Wrappers (AXI‑Lite, AHB‑Lite) have been removed from the architecture and replaced
+by dedicated backends.
 
 ---
 
 ## 6. Generic Command Interface
 
-All backends (Generic, AXI, AHB) share the same command interface:
+All backends share the same command interface:
 
 ### Command input (`t_cmd_out`)
 - command ID  
@@ -134,7 +142,8 @@ All backends (Generic, AXI, AHB) share the same command interface:
 - write/read flag  
 - burst type (single, incr, wrap, fifo)  
 - WSTRB mask  
-- additional parser metadata
+- atomic flag  
+- parser metadata
 
 ### Response output (`t_rsp_in`)
 - valid beat  
@@ -151,8 +160,9 @@ This interface is designed to be compatible with future CPU integration.
 
 ## 7. RISC‑V Integration (future)
 
-The placeholder *master* in the testbench will be replaced by a real **RISC‑V core**
-in future versions. The RISC‑V CPU will:
+The placeholder master in the testbench will be replaced by a real **RISC‑V core**.
+
+The RISC‑V CPU will:
 
 - generate commands using the same `t_cmd_out` interface  
 - share the command bus through the arbiter  
@@ -167,43 +177,23 @@ This enables hybrid systems where:
 
 ---
 
-## 8. RISC‑V Integration and TileLink Support (future)
+## 8. TileLink Support
 
-The future master replacing the current placeholder will be a RISC‑V core.  
-Modern RISC‑V systems typically use **TileLink** as their internal interconnect
-protocol. TileLink is an open, scalable and cache‑coherent protocol originally
-developed within the Berkeley Rocket Chip ecosystem and widely adopted in
-open‑source RISC‑V SoCs.
+Modern RISC‑V systems use **TileLink** as their internal interconnect protocol.
 
-TileLink variants include:
+DexterLab integrates TileLink through the **TileLink Bridge**, which converts TL
+transactions into `t_cmd_out` commands.
 
-- **TL‑UL** — TileLink Uncached Lightweight (similar to AXI‑Lite)
-- **TL‑UH** — TileLink Uncached Heavy (similar to AHB‑Full)
-- **TL‑C** — TileLink Coherent (for multi‑core systems with cache coherence)
-- **TL‑F** — TileLink FIFO (streaming accelerators)
+Supported TileLink variants:
 
-The DexterLab Command Parser will interface with RISC‑V systems through protocol
-bridges and wrappers:
+- **TL‑UL** — lightweight uncached (similar to AXI‑Lite)  
+- **TL‑UH** — uncached heavy (similar to AHB‑Full)  
 
-- TileLink → AXI  
-- TileLink → AHB  
-- AXI → TileLink  
-- AHB → TileLink  
-- AXI‑Full → AXI‑Lite wrapper  
-- AHB‑Full → AHB‑Lite wrapper  
-
-This allows the command parser to act as a universal command endpoint across
-heterogeneous bus architectures.
-
-The RISC‑V core will generate commands using the same `t_cmd_out` interface used
-by the external parser, enabling hybrid systems where firmware and external tools
-share the same hardware resources through the arbiter.
+Coherent variants (TL‑C) are out of scope for DexterLab 2026.
 
 ---
 
-## 9. Address Map
-
-The generic backend exposes three memory regions:
+## 9. Address Map (Generic Backend)
 
 | Region | Address Range       | Description            |
 |--------|----------------------|------------------------|
@@ -226,8 +216,7 @@ The parser supports:
 - BURST (INCR, WRAP)  
 - FIFO (FIXED)  
 - CHECK  
-- invalid address → DECERR  
-- semantic errors → BOUNDARY_ERR / BURST_ERR
+- error reporting (DECERR, SLVERR, BOUNDARY_ERR, BURST_ERR)
 
 Full documentation:  
 **docs/command_set.md**
@@ -240,8 +229,8 @@ The testbench includes:
 
 - parser engine  
 - arbiter  
-- master placeholder (future RISC‑V)  
-- slave backend  
+- master placeholder  
+- backend executor  
 - RAM/FIFO/REG models  
 - test sequences for burst, wrap, wstrb, and error conditions
 
@@ -252,7 +241,7 @@ Full documentation:
 
 ## 12. License
 
-The project will be released under the **MIT License**, a permissive open‑source
+The project is released under the **MIT License**, a permissive open‑source
 license that allows:
 
 - commercial use  
@@ -262,4 +251,6 @@ license that allows:
 
 with minimal restrictions.
 
-End of Document
+---
+
+# End of Document

@@ -1,3 +1,4 @@
+markdown
 # DexterLab Command Parser — Generic Interface Specification
 
 This document defines the generic interface between the DexterLab Command Parser
@@ -19,13 +20,16 @@ response (`t_rsp_in`).
 
 This interface is used by:
 
-- the **Generic Slave** (simulation only)
-- the **AXI‑Full Slave**
-- the **AHB‑Full Slave**
-- the **AXI‑Lite Wrapper**
-- the **AHB‑Lite Wrapper**
-- the **TileLink → AXI / AHB Bridges**
-- the **future RISC‑V master**, which will generate `t_cmd_out` directly
+- **Generic Backend**
+- **AXI‑Full Backend**
+- **AHB‑Full Backend**
+- **AXI‑Lite Backend**
+- **AHB‑Lite Backend**
+- **TileLink Bridge**
+- **Future RISC‑V Master**, which will generate `t_cmd_out` directly
+
+Wrappers have been removed from the DexterLab architecture and replaced by
+dedicated backends.
 
 ---
 
@@ -35,40 +39,39 @@ This interface is used by:
 flowchart LR
     A[Parser Engine] --> B[t_cmd_out]
     B --> C[Arbiter]
-    C --> D[Slave Backend]
+    C --> D[Backend Executor]
     D --> E[t_rsp_in]
 3. Command Interface Signals
-3.1 Signals from Parser → Slave
+3.1 Signals from Parser → Backend
 Signal	Type	Description
-cmd_valid	std_logic	The parser has produced a valid command.
-cmd_ready	std_logic	The slave is ready to accept a command.
-cmd	t_cmd_out	Structured command containing all decoded fields.
+cmd_valid	std_logic	The parser has produced a valid command
+cmd_ready	std_logic	The backend is ready to accept a command
+cmd	t_cmd_out	Structured command containing all fields
 
 
-Handshake rule:
+Handshake rule:  
+cmd_valid = '1' AND cmd_ready = '1' → command accepted.
 
-Codice
-cmd_valid = 1 AND cmd_ready = 1 → command accepted
-3.2 Signals from Slave → Parser
+3.2 Signals from Backend → Parser
 Signal	Type	Description
-rsp_valid	std_logic	Response beat is valid.
-rsp_last	std_logic	Last beat of the response.
-rsp	t_rsp_in	Response structure (data, errors, IDs).
-rsp_ready	std_logic	Parser ready to receive data.
-rsp_err_ready	std_logic	Parser ready to receive errors.
+rsp_valid	std_logic	Response beat is valid
+rsp_last	std_logic	Last beat of the response
+rsp	t_rsp_in	Response structure (data, errors, IDs)
+rsp_ready	std_logic	Parser ready to receive data
+rsp_err_ready	std_logic	Parser ready to receive errors
 
 
 4. Structure t_cmd_out (Official Declaration)
 vhdl
 type t_cmd_out is record
     cmd_write : std_logic;                     -- 1 = write, 0 = read
-    cmd_burst : std_logic;                     -- 1 = multi-beat
+    cmd_burst : std_logic;                     -- 1 = multi-beat INCR burst
     cmd_wrap  : std_logic;                     -- 1 = wrap addressing
-    cmd_fifo  : std_logic;                     -- 1 = fifo addressing
+    cmd_fifo  : std_logic;                     -- 1 = FIFO addressing
     cmd_atomic : std_logic;                    -- 1 = atomic operation
     cmd_id    : unsigned(C_ID_WIDTH-1 downto 0);
     cmd_addr  : t_addr;
-    cmd_len   : natural range 0 to 256;
+    cmd_len   : natural range 1 to 256;        -- number of beats
     cmd_data  : t_data_array;
     cmd_wstrb : std_logic_vector((C_DATA_WIDTH/8)-1 downto 0);
 end record;
@@ -87,11 +90,13 @@ cmd_id → correlates responses
 
 cmd_addr → address
 
-cmd_len → number of beats (0–256)
+cmd_len → number of beats (1–256)
 
 cmd_data → array of burst/fifo data
 
 cmd_wstrb → AXI byte mask
+
+The parser clamps cmd_len to the range 1–256.
 
 5. Structure t_rsp_out (Official Declaration)
 vhdl
@@ -114,17 +119,15 @@ end record;
 Notes
 rsp_data → read data
 
-rsp_err_code → AXI/AHB error semantics
+rsp_err_code → unified error semantics
 
-0x00 → OKAY
+Code	Meaning
+0x00	OKAY
+0x02	SLVERR
+0x03	DECERR
+0x06	BOUNDARY_ERR
+0x07	BURST_ERR
 
-0x02 → SLVERR
-
-0x03 → DECERR
-
-0x06 → BOUNDARY_ERR
-
-0x07 → BURST_ERR
 
 rsp_err_info → failing address
 
@@ -135,7 +138,7 @@ rsp_err_id → ID of failing command
 mermaid
 sequenceDiagram
     participant P as Parser
-    participant S as Slave
+    participant S as Backend
 
     P->>S: cmd_valid = 1, cmd
     S->>P: cmd_ready = 1
@@ -143,7 +146,7 @@ sequenceDiagram
 7.2 Response Flow
 mermaid
 sequenceDiagram
-    participant S as Slave
+    participant S as Backend
     participant P as Parser
 
     S->>P: rsp_valid (beat 0)
@@ -153,48 +156,57 @@ sequenceDiagram
 8. Backend Responsibilities
 Every backend must:
 
-Accept commands via cmd_valid/cmd_ready.
+accept commands via cmd_valid / cmd_ready
 
-Execute the command according to its protocol.
+execute the command according to its protocol
 
-Produce responses via rsp_valid/rsp_last.
+produce responses via rsp_valid / rsp_last
 
-Generate error codes when needed.
+generate error codes when needed
 
-Respect burst semantics (INCR, WRAP).
+respect burst semantics (INCR, WRAP)
 
-Respect FIFO semantics.
+respect FIFO semantics
 
-Respect WSTRB semantics.
+respect WSTRB semantics
 
-Respect 4KB boundary rules (AXI).
+respect 4KB boundary rules (AXI)
 
-Respect maximum burst length (256 beats).
+respect maximum burst length (256 beats)
 
-Support command splitting (handled by parser engine).
+support command splitting (handled by parser engine)
+
+Optional AXI‑Full signals (AWLOCK, AWREGION, AWQOS, ARLOCK, ARREGION, ARQOS)
+may be supported by AXI‑Full backends.
 
 9. Parser Responsibilities
 The parser engine:
 
-decodes textual commands,
+decodes textual commands
 
-builds t_cmd_out,
+builds t_cmd_out
 
-splits large bursts,
+splits large bursts
 
-handles wrap masks,
+handles wrap masks
 
-handles boundary crossing,
+handles boundary crossing
 
-handles FIFO semantics,
+handles FIFO semantics
 
-handles polling loops,
+handles polling loops
 
-handles dump file comparisons,
+handles dump file comparisons
 
-assigns command IDs,
+assigns command IDs
 
-ensures atomic mode when requested.
+enforces atomic mode
+
+clamps cmd_len to 1–256
+
+validates 4KB boundary rules
+
+validates burst/wrap semantics
 
 10. Command Splitting Logic
 mermaid
@@ -222,7 +234,7 @@ flowchart TD
 13. RISC‑V Integration (Future)
 The future master replacing the current placeholder will be a RISC‑V core.
 
-RISC‑V systems typically use TileLink internally (TL‑UL, TL‑UH, TL‑C).
+RISC‑V systems typically use TileLink internally (TL‑UL, TL‑UH).
 DexterLab will interface with RISC‑V systems through:
 
 TileLink → AXI

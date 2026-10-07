@@ -1,4 +1,5 @@
 # DexterLab AHB‑FULL Backend
+
 The AHB‑FULL Backend is the executor that converts high‑level parser commands
 (`t_cmd_out`) into real AHB‑FULL transactions.  
 It models the complete AHB protocol:
@@ -27,8 +28,8 @@ This backend is used to validate AHB‑FULL behavior in simulation.
 
 # 1. Overview
 
-The AHB‑FULL backend receives commands from the arbiter and generates AHB
-transactions toward an AHB slave model.
+The AHB‑FULL backend receives commands directly from the arbiter and generates
+AHB transactions toward an AHB slave model.
 
 It supports:
 
@@ -89,9 +90,9 @@ cmd_fifo	not used in AHB
 cmd_atomic	atomic mode (arbiter)
 cmd_id	response correlation
 cmd_addr	HADDR
-cmd_len	number of beats
+cmd_len	number of beats (1–256)
 cmd_data	write data array
-cmd_wstrb	ignored (AHB has no byte strobes)
+cmd_wstrb	ignored (AHB has no strobes)
 
 
 5. AHB‑FULL FSM
@@ -110,8 +111,6 @@ AHB requires:
 first beat: HTRANS = NONSEQ
 
 subsequent beats: HTRANS = SEQ
-
-Diagram:
 
 mermaid
 flowchart LR
@@ -141,13 +140,11 @@ cmd_wrap
 cmd_len
 
 8. Address Incrementing
-For INCR bursts:
-
+INCR bursts
 mermaid
 flowchart LR
     A[addr] --> B[addr + 4] --> C[addr + 8] --> D[...]
-For WRAP bursts:
-
+WRAP bursts
 mermaid
 flowchart TD
     A[offset] --> B[offset % (len*4)]
@@ -180,7 +177,7 @@ OKAY	0x00 (OKAY)
 ERROR	0x02 (SLVERR)
 
 
-If the address is invalid or burst crosses a forbidden boundary:
+If the address is invalid or a burst crosses a forbidden boundary:
 
 backend generates DECERR (0x03)
 
@@ -213,14 +210,12 @@ sequenceDiagram
         B->>S: HREADY
     end
 13. Response Mapping
-Write:
-
+Write
 HRESP → rsp_err_code
 
 cmd_id → rsp_id
 
-Read:
-
+Read
 HRDATA → rsp_data
 
 HRESP → rsp_err_code
@@ -228,29 +223,29 @@ HRESP → rsp_err_code
 cmd_id → rsp_id
 
 14. Atomic Mode
-Atomic mode is handled by the arbiter.
+Atomic mode is handled entirely by the arbiter.
 The backend simply executes commands in the order received.
 
 15. Summary
 The AHB‑FULL backend:
 
-converts parser commands into AHB transactions,
+converts parser commands into AHB transactions
 
-supports INCR and WRAP bursts,
+supports INCR and WRAP bursts
 
-handles wait‑states,
+handles wait‑states
 
-enforces HTRANS sequencing,
+enforces HTRANS sequencing
 
-enforces HBURST encoding,
+enforces HBURST encoding
 
-handles error propagation,
+handles error propagation
 
-returns responses through t_rsp_in,
+returns responses through t_rsp_in
 
-is designed for simulation, not synthesis.
+is designed for simulation, not synthesis
 
-It is the AHB counterpart of the AXI‑FULL backend and completes the dual‑bus
-support of DexterLab.
+It is the AHB counterpart of the AXI‑FULL backend and completes DexterLab’s
+dual‑bus support.
 
 End of Document

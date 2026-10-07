@@ -1,4 +1,6 @@
+markdown
 # DexterLab Parser Documentation Index
+
 This index provides a structured overview of all documents related to the
 DexterLab command parser, its interfaces, error model, execution flow, and
 simulation environments.
@@ -49,7 +51,7 @@ Complete list of:
 **`cmd_flow.md`**  
 Describes the full execution pipeline:
 
-file.cmd → parser → arbiter → wrapper → backend → bus → response
+file.cmd → parser → arbiter → backend → bus → response → parser
 
 Codice
 
@@ -59,6 +61,8 @@ Includes:
 - arbitration  
 - backend execution  
 - response handling  
+
+Wrappers are no longer part of the architecture.
 
 ---
 
@@ -90,7 +94,7 @@ DexterLab is fully compatible with:
 - **Mentor QuestaSim**  
 - **Aldec Riviera-PRO**  
 - **ModelSim PE/SE**  
-- any IEEE-compliant VHDL simulator
+- any IEEE-compliant VHDL simulator  
 
 No vendor-specific features are required.
 
@@ -120,18 +124,20 @@ Open-ended roadmap for future master implementations:
 
 ---
 
-# 9. Additional Backend / Wrapper Documentation
+# 9. Backend Documentation
 (Already present in the repository)
 
-- AXI-FULL backend  
-- AXI-LITE wrapper  
-- AHB-FULL backend  
-- AHB-LITE wrapper  
-- TileLink bridge  
-- arbiter  
-- generic backend  
+- **AXI-FULL backend** (`backend_axi_full.md`)  
+- **AXI-LITE backend** (`backend_axi_lite.md`)  
+- **AHB-FULL backend** (`backend_ahb_full.md`)  
+- **AHB-LITE backend** (`backend_ahb_lite.md`)  
+- **Generic backend** (`backend_generic.md`)  
+- **TileLink bridge** (`tilelink_bridge.md`)  
+- **Arbiter** (`arbiter.md`)  
 
 These documents describe the hardware execution layer.
+
+Wrappers have been removed from DexterLab 2026.
 
 ---
 
@@ -147,7 +153,9 @@ The DexterLab parser documentation is composed of:
 - **simulation environments**  
 - **master placeholder**  
 - **master roadmap**  
-- **backend/wrapper documentation**
+- **backend documentation**  
+- **TileLink bridge**  
+- **arbiter**  
 
 This index provides a complete overview of all available documents.
 

@@ -1,9 +1,12 @@
+markdown
 # DexterLab Command Flow (End-to-End)
+
 This document describes the complete execution flow of a DexterLab command file,
 from `.cmd` parsing to bus-level execution and response handling.
 
-The flow is identical for AXI-FULL, AXI-LITE, AHB-FULL, AHB-LITE, and TileLink
-(backends and wrappers adapt the command format as needed).
+The flow is identical for AXI-FULL, AXI-LITE, AHB-FULL, AHB-LITE, and TileLink.
+Backends convert the generic command format into protocol-specific bus
+transactions.
 
 ---
 
@@ -11,11 +14,13 @@ The flow is identical for AXI-FULL, AXI-LITE, AHB-FULL, AHB-LITE, and TileLink
 
 The full command path is:
 
-file.cmd → parser → arbiter → wrapper → backend → bus → response → parser
+file.cmd → parser → arbiter → backend → bus → response → parser
 
 Codice
 
 Each stage is independent and bus-agnostic.
+
+Wrappers no longer exist in DexterLab 2026.
 
 ---
 
@@ -28,13 +33,13 @@ The parser reads the `.cmd` file line-by-line:
 3. tokenize the command  
 4. validate syntax  
 5. validate semantics  
-6. build an internal command structure
+6. build an internal command structure  
 
 If any error is detected:
 
-- parsing stops,
-- an error message is printed,
-- no hardware command is generated.
+- parsing stops  
+- an error message is printed  
+- no hardware command is generated  
 
 ---
 
@@ -50,8 +55,8 @@ Fields include:
 
 - write/read flag  
 - address  
-- burst/wrap/fifo flags  
-- length  
+- burst / wrap / FIFO flags  
+- length (1–256 beats)  
 - data words  
 - byte strobes  
 - atomic flag  
@@ -72,7 +77,7 @@ until the arbiter accepts the command.
 The arbiter selects between:
 
 - parser  
-- hardware master (future)  
+- hardware master (future RISC‑V TileLink master)  
 
 Rules:
 
@@ -80,37 +85,19 @@ Rules:
 - pending commands have priority  
 - otherwise, first valid source wins  
 
-Once selected, the arbiter forwards the command to the wrapper/backend.
+Once selected, the arbiter forwards the command directly to the backend.
 
 ---
 
-# 5. Stage 4 — Wrapper
+# 5. Stage 4 — Backend
 
-The wrapper adapts the generic command to the selected bus:
+The backend converts the generic command into protocol-specific bus transactions:
 
-- AXI-FULL  
-- AXI-LITE  
-- AHB-FULL  
-- AHB-LITE  
-
-Examples:
-
-- AXI-LITE → forces single-beat  
-- AHB-LITE → forces NONSEQ  
-- AXI-FULL → preserves bursts  
-- AHB-FULL → preserves bursts  
-
-The wrapper does **not** modify command semantics.
-
----
-
-# 6. Stage 5 — Backend
-
-The backend converts the command into bus transactions:
-
-- AXI: AW/W/B or AR/R  
-- AHB: HADDR/HWRITE/HTRANS/HWDATA/HRDATA  
-- TileLink: a/d channels  
+- **AXI-FULL**: AW/W/B + AR/R  
+- **AXI-LITE**: AW/W/B + AR/R (single beat)  
+- **AHB-FULL**: HADDR/HWRITE/HTRANS/HWDATA/HRDATA  
+- **AHB-LITE**: single-beat AHB transactions  
+- **TileLink Bridge**: TL a/d channels → `t_cmd_out`  
 
 The backend enforces:
 
@@ -130,7 +117,7 @@ Codice
 
 ---
 
-# 7. Stage 6 — Bus Execution
+# 6. Stage 5 — Bus Execution
 
 The bus executes the transaction:
 
@@ -149,7 +136,7 @@ The backend handles these and returns a unified response.
 
 ---
 
-# 8. Stage 7 — Response (`t_rsp_in`)
+# 7. Stage 6 — Response (`t_rsp_in`)
 
 The backend returns:
 
@@ -172,41 +159,46 @@ otherwise.
 
 ---
 
-# 9. End-to-End Example
+# 8. End-to-End Example
 
 ### File
+
+```text
 WRITE 0x80000000 0x55
 READ  0x80000000
+Flow
+Parser builds WRITE command
 
-Codice
+Arbiter accepts
 
-### Flow
-1. Parser builds WRITE command  
-2. Arbiter accepts  
-3. Wrapper adapts to bus  
-4. Backend performs write  
-5. Backend returns OKAY  
-6. Parser builds READ command  
-7. Backend returns data  
-8. Parser prints result  
+Backend performs AXI/AHB write
 
----
+Backend returns OKAY
 
-# 10. Summary
+Parser builds READ command
 
+Backend performs read
+
+Backend returns data
+
+Parser prints result
+
+9. Summary
 The DexterLab command flow is:
 
-1. parse  
-2. validate  
-3. translate  
-4. arbitrate  
-5. adapt  
-6. execute  
-7. respond  
+parse
+
+validate
+
+translate
+
+arbitrate
+
+execute
+
+respond
 
 This document defines the complete end-to-end behavior of the DexterLab command
 system.
 
----
-
-# End of Document
+End of Document

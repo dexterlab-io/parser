@@ -1,3 +1,4 @@
+markdown
 # DexterLab Command Parser — Command Set
 
 This document describes all commands supported by the DexterLab Command Parser.
@@ -66,14 +67,7 @@ Codice
 Loads and executes another command file.
 
 ### Example
-INCLUDE init_var.txt
-
-Codice
-
-### Typical use
-SET_VAR BASE_RAM = 0x00001000
-SET_VAR BASE_FIFO_WR = 0x00003000
-SET_VAR BASE_FIFO_RD = 0x00003100
+INCLUDE init_vars.txt
 
 Codice
 
@@ -82,42 +76,17 @@ Codice
 # 3. WAIT Commands
 
 ## 3.1 WAIT_CLOCKS
-
-### Syntax
 WAIT_CLOCKS <N>
 
 Codice
 
-### Example
-WAIT_CLOCKS 5
-
-Codice
-
----
-
 ## 3.2 WAIT_TIME
-
-### Syntax
 WAIT_TIME <time>
 
 Codice
 
-### Example
-WAIT_TIME 10ns
-
-Codice
-
----
-
 ## 3.3 WAIT_SIM_TIME
-
-### Syntax
 WAIT_SIM_TIME <time>
-
-Codice
-
-### Example
-WAIT_SIM_TIME 450ns
 
 Codice
 
@@ -130,11 +99,7 @@ SET_ATOMIC <0|1>
 
 Codice
 
-### Description
-Enables or disables atomic execution mode.
-
 ### Diagram
-
 ```mermaid
 flowchart LR
     A[SET_ATOMIC 1] --> B[Atomic Mode Enabled]
@@ -148,7 +113,7 @@ Codice
 WSTRB_WRITE <addr> <wstrb>
 Example
 Codice
-WSTRB_WRITE BASE_RAM 0x00000098 0b0001
+WSTRB_WRITE BASE_RAM + 0x98 0b0001
 Diagram
 mermaid
 flowchart LR
@@ -166,41 +131,24 @@ flowchart LR
     K -->|No| M[Skip lane 3]
 6. WRITE / READ / CHECK
 6.1 WRITE
-Syntax
 Codice
 WRITE <addr> <data>
-Example
-Codice
-WRITE BASE_RAM + 0x0000 0x12345678
 6.2 READ
-Syntax
 Codice
 READ <addr>
-Example
-Codice
-READ BASE_RAM + 0x0000
 6.3 CHECK
-Syntax
 Codice
 CHECK <addr> <expected>
-Example
-Codice
-CHECK BASE_RAM + 0x0000 0x12345678
 7. FIFO Commands
 7.1 FIFO_WRITE
-Syntax
 Codice
 FIFO_WRITE <addr> <len> <data...>
-Example
-Codice
-FIFO_WRITE BASE_FIFO_WR 8 0x11 0x22 0x33 0x44 0x55 0x66 0x77 0x88
 Diagram
 mermaid
 flowchart TD
     A[FIFO_WRITE] --> B[Push Data]
     B --> C[FIFO Memory]
 7.2 FIFO_READ
-Syntax
 Codice
 FIFO_READ <addr> <len>
 Diagram
@@ -209,17 +157,12 @@ flowchart TD
     A[FIFO Memory] --> B[Pop Data]
     B --> C[FIFO_READ]
 7.3 FIFO_CHECK
-Syntax
 Codice
 FIFO_CHECK <addr> <len> <expected...>
 8. BURST Commands
 8.1 BURST_WRITE
-Syntax
 Codice
 BURST_WRITE <addr> <len> <data...>
-Example
-Codice
-BURST_WRITE BASE_RAM + 0x0100 4 0x01 0x02 0x03 0x04
 Diagram
 mermaid
 sequenceDiagram
@@ -230,16 +173,13 @@ sequenceDiagram
     S->>P: rsp_valid (4 beats)
     S->>P: rsp_last
 8.2 BURST_READ
-Syntax
 Codice
 BURST_READ <addr> <len>
 8.3 BURST_CHECK
-Syntax
 Codice
 BURST_CHECK <addr> <len> <expected...>
 9. WRAP Commands
 9.1 WRAP_WRITE
-Syntax
 Codice
 WRAP_WRITE <addr> <len> <data...>
 Diagram
@@ -251,16 +191,13 @@ flowchart LR
     D --> E[addr + 12]
     E --> F[Wrap to base]
 9.2 WRAP_READ
-Syntax
 Codice
 WRAP_READ <addr> <len>
 9.3 WRAP_CHECK
-Syntax
 Codice
 WRAP_CHECK <addr> <len> <expected...>
 10. FILL Commands
 10.1 FILL_LEN
-Syntax
 Codice
 FILL_LEN <addr> <len> <pattern>
 Diagram
@@ -269,7 +206,6 @@ flowchart TD
     A[FILL_LEN] --> B[Repeat pattern]
     B --> C[Write len words]
 10.2 FILL_RANGE
-Syntax
 Codice
 FILL_RANGE <addr_start> <addr_end> <pattern>
 Diagram
@@ -280,16 +216,13 @@ flowchart TD
     C -->|Yes| D[Split into bursts]
     C -->|No| E[Single burst]
 10.3 FILL_CHECK
-Syntax
 Codice
 FILL_CHECK <addr> <len> <pattern>
 11. DUMP Commands
 11.1 DUMP_LEN
-Syntax
 Codice
 DUMP_LEN <addr> <len>
 11.2 DUMP_RANGE
-Syntax
 Codice
 DUMP_RANGE <addr_start> <addr_end>
 11.3 DUMP_FILE_LEN / RANGE
@@ -310,7 +243,6 @@ flowchart TD
     D -->|No| F[Error]
 12. POLL Commands
 12.1 POLL_READ
-Syntax
 Codice
 POLL_READ <addr> <mask> <value> <attempts> <delay>
 Diagram
@@ -324,15 +256,12 @@ flowchart TD
     F -->|Yes| B
     F -->|No| G[Timeout]
 12.2 POLL_TOGGLE
-Syntax
 Codice
 POLL_TOGGLE <addr> <mask> <attempts> <delay>
 12.3 POLL_PING
-Syntax
 Codice
 POLL_PING <addr> <attempts> <delay>
 13. STOP / END_SIM
-Syntax
 Codice
 STOP
 END_SIM
@@ -348,17 +277,16 @@ Burst 1024 → 4 bursts of 256
 Boundary 4KB → additional split
 
 15.2 Wrap Boundary
-wrap mask = len * 4 bytes
-
-address = base + (offset % mask)
-
+Codice
+mask = len * 4 bytes
+addr = base + (offset % mask)
 15.3 FIFO Underflow
+Codice
 FIFO_READ len > available → error
-
 15.4 Dump File Mismatch
+Codice
 first mismatch stops comparison
-
 15.5 Polling Timeout
+Codice
 attempts exhausted → error
-
 End of Document

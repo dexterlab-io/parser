@@ -1,8 +1,11 @@
+markdown
 # DexterLab TileLink Bridge
+
 The TileLink Bridge is the module that connects TileLink‑based systems (such as
 RISC‑V SoCs) to the DexterLab command ecosystem.  
-It converts TileLink UL/UH/C transactions into AXI‑FULL or AHB‑FULL commands,
-allowing the RISC‑V master to generate `t_cmd_out` commands directly.
+It converts TileLink UL/UH transactions into `t_cmd_out` commands, allowing a
+RISC‑V master to interact with DexterLab backends through the unified command
+interface.
 
 This bridge is essential for integrating DexterLab into real RISC‑V systems.
 
@@ -12,22 +15,20 @@ This bridge is essential for integrating DexterLab into real RISC‑V systems.
 
 TileLink is the native bus protocol used in most RISC‑V SoCs:
 
-- TL‑UL (Uncached Lightweight)
-- TL‑UH (Uncached Heavyweight)
-- TL‑C  (Cached)
+- **TL‑UL** (Uncached Lightweight)  
+- **TL‑UH** (Uncached Heavyweight)  
 
-DexterLab uses AXI‑FULL and AHB‑FULL internally.  
+DexterLab uses AXI‑FULL, AXI‑LITE, AHB‑FULL, AHB‑LITE, and Generic backends.  
 Therefore, a bridge is required to translate TileLink transactions into DexterLab
-commands.
+commands (`t_cmd_out`), and to translate DexterLab responses (`t_rsp_in`) back
+into TileLink responses.
 
 The bridge supports:
 
-- TL → AXI‑FULL  
-- TL → AHB‑FULL  
-- AXI‑FULL → TL  
-- AHB‑FULL → TL  
+- TL → DexterLab (`t_cmd_out`)  
+- DexterLab (`t_rsp_in`) → TL  
 
-depending on system configuration.
+Backend selection (AXI/AHB/Generic) is handled by the arbiter + backend layer.
 
 ---
 
@@ -38,7 +39,7 @@ flowchart LR
     A[TileLink Master (RISC-V)] --> B[TileLink Bridge]
     B --> C[t_cmd_out]
     C --> D[Arbiter]
-    D --> E[AXI/AHB Backend]
+    D --> E[Backend Executor]
     E --> D
     D --> F[t_rsp_in]
     F --> B
@@ -46,11 +47,11 @@ flowchart LR
 3. TileLink Concepts
 TileLink transactions include:
 
-a channel (requests)
+a channel — requests
 
-d channel (responses)
+d channel — responses
 
-optional b, c, e channels (cached systems)
+optional b, c, e channels — used only in coherent systems (not supported)
 
 The bridge focuses on:
 
@@ -76,11 +77,10 @@ a.size	cmd_len (converted to beats)
 a.mask	cmd_wstrb
 a.data	cmd_data
 a.source	cmd_id
-a.param	burst/wrap/atomic
+a.param	burst / wrap / atomic
 
 
-TileLink opcodes:
-
+TileLink opcodes
 Opcode	Meaning	Mapping
 PutFullData	write	cmd_write = 1
 PutPartialData	masked write	cmd_write = 1 + WSTRB
@@ -99,7 +99,8 @@ rsp_id	d.source
 rsp_last	d.last
 
 
-Error mapping:
+Error mapping
+TileLink supports only one error bit.
 
 DexterLab Error	TL Error
 OKAY	0
@@ -109,10 +110,8 @@ BURST_ERR	1
 BOUNDARY_ERR	1
 
 
-TileLink only supports a single error bit.
-
 6. Burst Semantics
-TileLink UL supports:
+TileLink UL/UH supports:
 
 single‑beat transfers
 
@@ -126,10 +125,9 @@ cmd_burst
 
 cmd_wrap
 
-cmd_len
+cmd_len (1–256 beats)
 
-Wrap mask:
-
+Wrap mask
 mermaid
 flowchart TD
     A[offset] --> B[offset % (len*4)]
@@ -145,7 +143,7 @@ map to:
 
 Codice
 cmd_atomic = '1'
-The arbiter enforces atomicity.
+Atomicity is enforced by the arbiter.
 
 8. Bridge FSM
 mermaid
@@ -156,41 +154,41 @@ stateDiagram-v2
     CMD_SEND --> WAIT_RSP
     WAIT_RSP --> TL_SEND: rsp_valid
     TL_SEND --> TL_RECV
-9. AXI vs AHB Selection
-The bridge can target:
+9. Backend Selection
+The TileLink Bridge does not interact directly with AXI/AHB signals.
+
+Backend selection is handled by the DexterLab architecture:
+
+Codice
+TileLink → t_cmd_out → arbiter → backend → bus
+Supported backends:
 
 AXI‑FULL
-high‑performance systems
 
-multi‑beat bursts
-
-wrap bursts
-
-WSTRB support
+AXI‑LITE
 
 AHB‑FULL
-simpler systems
 
-deterministic timing
+AHB‑LITE
 
-lightweight integration
+Generic
 
 Selection is static at synthesis time.
 
 10. Summary
 The TileLink Bridge:
 
-connects RISC‑V TileLink masters to DexterLab,
+connects RISC‑V TileLink masters to DexterLab
 
-converts TL requests into t_cmd_out,
+converts TL requests into t_cmd_out
 
-converts t_rsp_in into TL responses,
+converts t_rsp_in into TL responses
 
-supports bursts, wrap, atomic operations,
+supports bursts, wrap, atomic operations
 
-supports AXI‑FULL and AHB‑FULL backends,
+supports AXI‑FULL, AXI‑LITE, AHB‑FULL, AHB‑LITE, and Generic backends
 
-is designed for simulation and future hardware integration.
+is designed for simulation and future hardware integration
 
 It is the final piece that enables DexterLab to operate inside real RISC‑V SoCs.
 

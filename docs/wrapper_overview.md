@@ -1,243 +1,134 @@
-# DexterLab Wrapper Overview
-DexterLab provides four bus wrappers that connect the generic command parser
-(`t_cmd_out` / `t_rsp_in`) to different bus protocols:
+# DexterLab Bus Integration Overview
 
-- AXI‑FULL  
-- AXI‑LITE  
-- AHB‑FULL  
-- AHB‑LITE  
+DexterLab originally included several *wrappers* (`cmd_wrapper_axi_full`,
+`cmd_wrapper_axi_lite`, `cmd_wrapper_ahb_full`, `cmd_wrapper_ahb_lite`) whose
+purpose was to adapt the generic command interface (`t_cmd_out` / `t_rsp_in`)
+to different bus protocols.
 
-All wrappers share the same philosophy:
+These wrappers have been **removed** from the system.
 
-> **The parser is bus‑agnostic.  
-> The backend implements the bus.  
-> The wrapper connects the two.**
-
-This document explains the purpose, structure, and differences between the four
-wrappers.
+The current architecture no longer requires wrappers:  
+the parser connects **directly** to the backend modules.
 
 ---
 
-# 1. Why Wrappers Exist
+# 1. Current Architecture (2026)
 
-The DexterLab parser produces high‑level commands:
+The DexterLab command pipeline is now:
 
-WRITE addr data
-READ addr
-BURST_WRITE addr len data[]
-WRAP_READ addr len
-CHECK addr expected
-...
+cmd_parser → arbiter → backend → bus
 
 Codice
 
-These commands are **generic** and independent of any bus protocol.
+There is **no wrapper layer** between the arbiter and the backend.
 
-To execute them on a real bus (AXI or AHB), DexterLab uses:
+Each backend implements its bus protocol directly:
 
-1. **Backends**  
-   - `backend_axi_full`  
-   - `backend_ahb_full`
+- `backend_axi_full` → AXI‑FULL  
+- `backend_ahb_full` → AHB‑FULL  
+- (future) `backend_axi_lite`  
+- (future) `backend_ahb_lite`  
 
-2. **Wrappers**  
-   - `cmd_wrapper_axi_full`  
-   - `cmd_wrapper_axi_lite`  
-   - `cmd_wrapper_ahb_full`  
-   - `cmd_wrapper_ahb_lite`
+Wrappers are no longer needed because:
 
-The wrapper is the glue between:
-
-parser → arbiter → wrapper → backend → bus
-
-Codice
+- the parser already produces bus‑agnostic commands,
+- the backends already implement full protocol semantics,
+- the arbiter already handles atomicity, ordering, and source selection,
+- adaptation logic is unnecessary and removed.
 
 ---
 
-# 2. Architecture Diagram
+# 2. Why Wrappers Were Removed
+
+Wrappers existed originally to:
+
+- adapt AXI‑FULL → AXI‑LITE,
+- adapt AXI‑FULL → AHB‑FULL,
+- adapt AXI‑FULL → AHB‑LITE,
+- provide a unified interface layer.
+
+As the architecture evolved, these roles became redundant:
+
+### ✔ Backends now expose clean, direct interfaces  
+No adaptation layer is required.
+
+### ✔ AXI‑LITE and AHB‑LITE can be implemented directly in their own backends  
+No need to “downgrade” AXI‑FULL.
+
+### ✔ The arbiter already provides all necessary control  
+Atomic mode, pending flags, priority rules.
+
+### ✔ The parser’s command format is stable and bus‑agnostic  
+No wrapper logic is needed.
+
+### ✔ The unified wrapper module was removed from the repository  
+It served no purpose anymore.
+
+---
+
+# 3. Direct Backend Integration
+
+The parser and hardware masters now connect directly to the backend:
 
 ```mermaid
 flowchart LR
-    A[t_cmd_out] --> B[Wrapper]
+    A[t_cmd_out] --> B[Arbiter]
     B --> C[Backend]
-    C --> D[Bus Interface]
+    C --> D[Bus]
     D --> C
     C --> B
     B --> E[t_rsp_in]
-Wrappers do not interpret commands.
-They only route signals and adapt bus semantics when needed.
+This architecture is:
 
-3. The Four Wrappers
-3.1 cmd_wrapper_axi_full
-Purpose
-Connects the parser to a full AXI‑FULL bus.
+simpler
 
-Characteristics
-multi‑beat bursts
+faster
 
-wrap bursts
+easier to maintain
 
-WSTRB support
+easier to simulate
 
-AW/W/B + AR/R channels
+easier to extend
 
-high throughput
+4. Impact on Testbenches
+Testbenches now instantiate backends directly:
 
-full error reporting
+Codice
+cmd_parser → arbiter → backend_axi_full
+or
 
-Internal Structure
-Instantiates:
+Codice
+cmd_parser → arbiter → backend_ahb_full
+No wrapper modules are instantiated.
 
-backend_axi_full
+This reduces boilerplate and makes simulation setups cleaner.
 
-No adaptation is required.
+5. Future Backends
+Future bus support will be implemented directly as backends:
 
-3.2 cmd_wrapper_axi_lite
-Purpose
-Connects the parser to an AXI‑LITE bus.
+AXI‑LITE backend
 
-Characteristics
-single‑beat transfers
+AHB‑LITE backend
 
-no bursts
+TileLink backend
 
-no wrap
+Wishbone backend
 
-WSTRB supported
+APB backend
 
-simple control/status access
+No wrapper layer will be reintroduced.
 
-Internal Structure
-Instantiates:
+6. Summary
+All wrapper modules have been removed.
 
-backend_axi_full
+The parser connects directly to backends.
 
-Then adapts AXI‑FULL → AXI‑LITE:
+Backends implement full bus semantics.
 
-forces AWLEN/ARLEN = 0
+The arbiter handles ordering and atomicity.
 
-forces AWBURST/ARBURST = FIXED
+The architecture is simpler, cleaner, and easier to extend.
 
-forces WLAST = 1
-
-decomposes bursts into multiple AXI‑LITE single transfers
-
-3.3 cmd_wrapper_ahb_full
-Purpose
-Connects the parser to an AHB‑FULL bus.
-
-Characteristics
-multi‑beat bursts
-
-wrap bursts
-
-deterministic timing
-
-single channel (address + data)
-
-simple error reporting
-
-Internal Structure
-Instantiates:
-
-backend_ahb_full
-
-No adaptation is required.
-
-3.4 cmd_wrapper_ahb_lite
-Purpose
-Connects the parser to an AHB‑LITE bus.
-
-Characteristics
-single‑beat transfers
-
-no bursts
-
-no wrap
-
-deterministic timing
-
-simple integration
-
-Internal Structure
-Instantiates:
-
-backend_ahb_full
-
-Then adapts AHB‑FULL → AHB‑LITE:
-
-forces HBURST = SINGLE
-
-forces HTRANS = NONSEQ
-
-decomposes bursts into multiple AHB‑LITE single transfers
-
-4. Comparison Table
-Wrapper	Backend	External Bus	Bursts	Wrap	WSTRB	Notes
-AXI‑FULL	AXI‑FULL	AXI‑FULL	✔	✔	✔	full performance
-AXI‑LITE	AXI‑FULL	AXI‑LITE	✘	✘	✔	decomposes bursts
-AHB‑FULL	AHB‑FULL	AHB‑FULL	✔	✔	✘	deterministic timing
-AHB‑LITE	AHB‑FULL	AHB‑LITE	✘	✘	✘	decomposes bursts
-
-
-5. Atomic Mode
-Atomic mode (cmd_atomic = '1') is enforced by the arbiter.
-
-Wrappers do not implement atomicity.
-They simply forward commands in the order received.
-
-6. Error Handling
-Wrappers do not generate errors.
-Errors come from the backend:
-
-AXI‑FULL: OKAY, SLVERR, DECERR, custom
-
-AXI‑LITE: OKAY, SLVERR
-
-AHB‑FULL: OKAY, ERROR
-
-AHB‑LITE: OKAY, ERROR
-
-Wrappers forward error codes unchanged.
-
-7. Why Wrappers Are Separate Modules
-✔ Clean separation of concerns
-Parser is bus‑agnostic.
-Backend is protocol‑specific.
-Wrapper is interface‑specific.
-
-✔ Reusability
-The same backend can serve multiple wrappers.
-
-✔ Scalability
-Future wrappers (TileLink, Wishbone, APB) can be added easily.
-
-✔ Simplicity
-Wrappers contain no logic except routing and adaptation.
-
-8. Summary
-DexterLab provides four wrappers:
-
-AXI‑FULL → full performance
-
-AXI‑LITE → simple MMIO
-
-AHB‑FULL → deterministic mid‑range systems
-
-AHB‑LITE → microcontroller‑class peripherals
-
-All wrappers:
-
-use the same parser
-
-use the same arbiter
-
-use the same command interface
-
-use the same response interface
-
-differ only in bus semantics
-
-This modular design makes DexterLab flexible, scalable, and easy to integrate
-into any SoC architecture.
+DexterLab is now a fully backend‑driven system with no wrapper layer.
 
 End of Document

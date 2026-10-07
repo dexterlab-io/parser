@@ -40,16 +40,20 @@ architecture tb of tb_parser is
     signal s_parser_ready   : std_logic;
 
     signal s_parser_cmd : t_cmd_out := (
-        cmd_write	=> '0',
-        cmd_burst	=> '0',
-        cmd_wrap	=> '0',
-        cmd_fifo	=> '0',
-        cmd_atomic	=> '0',
-        cmd_id		=> (others => '0'),
-        cmd_addr	=> (others => '0'),
-        cmd_len		=> 0,
-        cmd_data	=> (others => (others => '0')),
-        cmd_wstrb	=> (others => '0')
+		cmd_write	=> '0',
+		cmd_burst	=> '0',
+		cmd_wrap	=> '0',
+		cmd_fifo	=> '0',
+		cmd_id		=> (others => '0'),
+		cmd_addr	=> (others => '0'),
+		cmd_len		=> 0,
+		cmd_data	=> (others => (others => '0')),
+		cmd_wstrb	=> (others => '0'),
+		cmd_prot	=> (others => '0'),
+		cmd_size	=> (others => '0'),
+		cmd_lock	=> '0',
+		cmd_cache	=> (others => '0'),
+		cmd_qos		=> (others => '0')
     );
 
     signal s_parser_rsp_ready : t_rsp_out := (
@@ -75,16 +79,20 @@ architecture tb of tb_parser is
     signal s_master_ready   : std_logic;
 
     signal s_master_cmd : t_cmd_out := (
-        cmd_write	=> '0',
-        cmd_burst	=> '0',
-        cmd_wrap	=> '0',
-        cmd_fifo	=> '0',
-        cmd_atomic	=> '0',
-        cmd_id		=> (others => '0'),
-        cmd_addr	=> (others => '0'),
-        cmd_len		=> 0,
-        cmd_data	=> (others => (others => '0')),
-        cmd_wstrb	=> (others => '0')
+		cmd_write	=> '0',
+		cmd_burst	=> '0',
+		cmd_wrap	=> '0',
+		cmd_fifo	=> '0',
+		cmd_id		=> (others => '0'),
+		cmd_addr	=> (others => '0'),
+		cmd_len		=> 0,
+		cmd_data	=> (others => (others => '0')),
+		cmd_wstrb	=> (others => '0'),
+		cmd_prot	=> (others => '0'),
+		cmd_size	=> (others => '0'),
+		cmd_lock	=> '0',
+		cmd_cache	=> (others => '0'),
+		cmd_qos		=> (others => '0')
     );
 
     signal s_master_rsp_ready : t_rsp_out := (

@@ -1,5 +1,6 @@
 # DexterLab Command File Format (`.cmd`)
-DexterLab uses plain-text command files (`.cmd`) to describe sequences of bus
+
+DexterLab uses plain‑text command files (`.cmd`) to describe sequences of bus
 operations.  
 These files are parsed by the DexterLab command parser and converted into
 high‑level hardware commands (`t_cmd_out`).
@@ -13,296 +14,239 @@ valid `.cmd` files.
 
 A `.cmd` file is composed of:
 
-- one command per line,
-- optional comments,
-- optional blank lines,
-- optional indentation.
+- one command per line  
+- optional comments  
+- optional blank lines  
+- optional indentation  
 
 The parser ignores:
 
-- leading/trailing spaces,
-- empty lines,
-- comment lines starting with `#`.
+- leading/trailing spaces  
+- empty lines  
+- comment lines starting with `#`  
 
-Example:
+### Example
 
-This is a comment
+```text
+# This is a comment
 WRITE 0x80000000 0xDEADBEEF
 READ  0x80000000
-
-Codice
-
----
-
-# 2. Address Format
-
+2. Address Format
 Addresses may be written as:
 
-- hexadecimal: `0x80000000`
-- decimal: `2147483648`
+hexadecimal: 0x80000000
+
+decimal: 2147483648
 
 Hexadecimal is recommended.
 
----
-
-# 3. Data Format
-
+3. Data Format
 Data fields may be written as:
 
-- hexadecimal: `0xDEADBEEF`
-- decimal: `3735928559`
+hexadecimal: 0xDEADBEEF
+
+decimal: 3735928559
 
 For burst commands, multiple data words are separated by spaces:
 
+text
 BURST_WRITE 0x1000 4  0x01 0x02 0x03 0x04
+4. Supported Commands
+The parser supports the following commands.
 
-Codice
-
----
-
-# 4. Supported Commands
-
-The parser supports the following commands:
-
-## 4.1 WRITE
+4.1 WRITE
 Writes a single word.
 
+text
 WRITE <addr> <data>
-
-Codice
-
 Example:
 
+text
 WRITE 0x80000000 0x12345678
-
-Codice
-
----
-
-## 4.2 READ
+4.2 READ
 Reads a single word.
 
+text
 READ <addr>
-
-Codice
-
 Example:
 
+text
 READ 0x80000000
-
-Codice
-
----
-
-## 4.3 BURST_WRITE
+4.3 BURST_WRITE
 Writes multiple words sequentially.
 
+text
 BURST_WRITE <addr> <len> <data0> <data1> ... <dataN>
-
-Codice
-
 Example:
 
+text
 BURST_WRITE 0x1000 4  0xAA 0xBB 0xCC 0xDD
-
-Codice
-
----
-
-## 4.4 BURST_READ
+4.4 BURST_READ
 Reads multiple words sequentially.
 
+text
 BURST_READ <addr> <len>
-
-Codice
-
 Example:
 
+text
 BURST_READ 0x2000 8
-
-Codice
-
----
-
-## 4.5 WRAP_WRITE
+4.5 WRAP_WRITE
 Writes a wrap burst.
 
+text
 WRAP_WRITE <addr> <len> <data...>
-
-Codice
-
 Example:
 
+text
 WRAP_WRITE 0x3000 4  0x01 0x02 0x03 0x04
-
-Codice
-
----
-
-## 4.6 WRAP_READ
+4.6 WRAP_READ
 Reads a wrap burst.
 
+text
 WRAP_READ <addr> <len>
-
-Codice
-
 Example:
 
+text
 WRAP_READ 0x3000 4
-
-Codice
-
----
-
-## 4.7 FIFO_WRITE
+4.7 FIFO_WRITE
 Writes into a FIFO.
 
+text
 FIFO_WRITE <addr> <len> <data...>
-
-Codice
-
 Example:
 
+text
 FIFO_WRITE 0x4000 3  0x10 0x20 0x30
-
-Codice
-
----
-
-## 4.8 FIFO_READ
+4.8 FIFO_READ
 Reads from a FIFO.
 
+text
 FIFO_READ <addr> <len>
-
-Codice
-
 Example:
 
+text
 FIFO_READ 0x4000 3
-
-Codice
-
----
-
-## 4.9 CHECK
+4.9 CHECK
 Reads a word and compares it with an expected value.
 
+text
 CHECK <addr> <expected>
-
-Codice
-
 Example:
 
+text
 CHECK 0x80000000 0xCAFEBABE
-
-Codice
-
 If the value does not match, the backend generates an error.
 
----
-
-## 4.10 ATOMIC_BEGIN / ATOMIC_END
+4.10 ATOMIC_BEGIN / ATOMIC_END
 Executes a sequence of commands atomically.
 
+text
 ATOMIC_BEGIN
-WRITE 0x80000000 0x01
-WRITE 0x80000004 0x02
+    WRITE 0x80000000 0x01
+    WRITE 0x80000004 0x02
 ATOMIC_END
-
-Codice
-
 Atomic blocks prevent the arbiter from switching to other masters.
 
----
+4.11 FILL_LEN
+Writes a repeated pattern for a given length.
 
-# 5. Comments
+text
+FILL_LEN <addr> <len> <pattern>
+4.12 FILL_RANGE
+Writes a repeated pattern from addr_start to addr_end.
 
-Comments start with `#` and extend to the end of the line.
+text
+FILL_RANGE <addr_start> <addr_end> <pattern>
+4.13 DUMP_LEN
+Reads and prints len words.
 
-This is a comment
+text
+DUMP_LEN <addr> <len>
+4.14 DUMP_RANGE
+Reads and prints a range of addresses.
+
+text
+DUMP_RANGE <addr_start> <addr_end>
+4.15 POLL_READ / POLL_TOGGLE / POLL_PING
+Polling commands used for synchronization.
+
+Examples:
+
+text
+POLL_READ   <addr> <mask> <value> <attempts> <delay>
+POLL_TOGGLE <addr> <mask> <attempts> <delay>
+POLL_PING   <addr> <attempts> <delay>
+5. Comments
+Comments start with # and extend to the end of the line.
+
+text
+# This is a comment
 WRITE 0x1000 0x55   # Inline comment
-
-Codice
-
----
-
-# 6. Whitespace Rules
-
+6. Whitespace Rules
 The parser accepts:
 
-- multiple spaces,
-- tabs,
-- indentation.
+multiple spaces
+
+tabs
+
+indentation
 
 All of the following are equivalent:
 
+text
 WRITE 0x1000 0x55
 WRITE    0x1000    0x55
-WRITE 0x1000 0x55
-
-Codice
-
----
-
-# 7. Error Conditions
-
+    WRITE 0x1000 0x55
+7. Error Conditions
 The parser reports errors for:
 
-- unknown commands,
-- missing arguments,
-- invalid numbers,
-- burst length mismatch,
-- wrap length mismatch,
-- CHECK mismatch,
-- malformed lines.
+unknown commands
+
+missing arguments
+
+invalid numbers
+
+burst length mismatch
+
+wrap length mismatch
+
+malformed lines
 
 Example of invalid:
 
+text
 WRITE 0x1000
-
-Codice
-
 (missing data)
 
----
-
-# 8. Complete Example
-
-Configure device
+8. Complete Example
+text
+# Configure device
 WRITE 0x80000000 0x01
 WRITE 0x80000004 0x02
 
-Read back
+# Read back
 READ 0x80000000
 READ 0x80000004
 
-Burst write
+# Burst write
 BURST_WRITE 0x9000 4  0xAA 0xBB 0xCC 0xDD
 
-Check values
+# Check values
 CHECK 0x80000000 0x01
 CHECK 0x80000004 0x02
 
-Atomic block
+# Atomic block
 ATOMIC_BEGIN
-WRITE 0xA000 0x10
-WRITE 0xA004 0x20
+    WRITE 0xA000 0x10
+    WRITE 0xA004 0x20
 ATOMIC_END
-
-Codice
-
----
-
-# 9. Summary
-
-A `.cmd` file is a simple, readable, line‑based format that describes bus
-operations.  
-It supports single operations, bursts, wrap bursts, FIFO operations, checks, and
-atomic blocks.
+9. Summary
+A .cmd file is a simple, readable, line‑based format that describes bus
+operations.
+It supports single operations, bursts, wrap bursts, FIFO operations, fills,
+dumps, polls, checks, and atomic blocks.
 
 This document defines the complete syntax required to write valid DexterLab
 command files.
 
----
-
-# End of Document
+End of Document

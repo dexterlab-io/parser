@@ -1,4 +1,5 @@
 # DexterLab AXI‑FULL Backend
+
 The AXI‑FULL Backend is the most complete and protocol‑accurate executor in the
 DexterLab parser ecosystem.  
 It receives commands from the arbiter (`t_cmd_out`) and generates real AXI‑FULL
@@ -12,12 +13,12 @@ transactions on all five channels:
 
 This backend is used to validate AXI‑FULL behavior in simulation, including:
 
-- burst semantics (INCR, WRAP),
-- WSTRB masking,
-- 4KB boundary rules,
-- multi‑beat write/read sequences,
-- error propagation,
-- timing correctness.
+- burst semantics (INCR, WRAP)
+- WSTRB masking
+- 4KB boundary rules
+- multi‑beat write/read sequences
+- error propagation
+- timing correctness
 
 ---
 
@@ -26,17 +27,19 @@ This backend is used to validate AXI‑FULL behavior in simulation, including:
 The AXI‑FULL backend converts high‑level parser commands into AXI transactions.
 It is designed for **simulation**, not synthesis, and therefore:
 
-- supports zero‑latency command acceptance,
+- accepts commands immediately,
 - uses a simple FSM,
 - models AXI behavior faithfully,
 - enforces AXI protocol rules,
 - generates AXI error codes when needed.
 
-The backend is fully compatible with:
+The backend connects **directly** to the arbiter:
 
-- `t_cmd_out` (parser → backend)
-- `t_rsp_in`  (backend → parser)
-- `t_rsp_out` (parser/master → backend)
+parser → arbiter → axi_full_backend → AXI bus
+
+Codice
+
+and returns responses through `t_rsp_in`.
 
 ---
 
@@ -50,7 +53,7 @@ flowchart LR
     D --> C
     B --> E[t_rsp_in]
 3. AXI‑FULL Channels
-The backend drives all AXI‑FULL signals:
+The backend drives all AXI‑FULL signals.
 
 Write Address Channel (AW)
 AWADDR
@@ -108,17 +111,15 @@ RVALID
 RREADY
 
 4. Command Mapping
-The backend interprets t_cmd_out fields as follows:
-
 Field	Meaning
 cmd_write	1 = write, 0 = read
 cmd_burst	INCR burst
 cmd_wrap	WRAP burst
-cmd_fifo	FIFO mode (not used in AXI)
-cmd_atomic	atomic mode (handled by arbiter)
+cmd_fifo	not used in AXI
+cmd_atomic	atomic mode (arbiter)
 cmd_id	AXI transaction correlation
 cmd_addr	AXI address
-cmd_len	number of beats (0–256)
+cmd_len	number of beats (1–256)
 cmd_data	write data array
 cmd_wstrb	AXI byte mask
 
@@ -136,13 +137,8 @@ stateDiagram-v2
     IDLE --> AR: cmd_valid & cmd_write = 0
     AR --> R: ARREADY = 1
     R --> IDLE: RLAST = 1
-The FSM is intentionally simple because:
-
-AXI timing is modeled,
-
-but not constrained by synthesis rules,
-
-allowing fast simulation.
+The FSM is intentionally simple because AXI timing is modeled but not constrained
+by synthesis rules.
 
 6. Write Transaction Flow
 mermaid
@@ -178,21 +174,17 @@ sequenceDiagram
 
     A->>P: RLAST
 8. Burst Semantics
-8.1 INCR Burst
-Address increments by 4 bytes per beat:
-
+INCR Burst
 mermaid
 flowchart LR
     A[addr] --> B[addr + 4] --> C[addr + 8] --> D[...]
-8.2 WRAP Burst
+WRAP Burst
 Wrap mask:
 
 Codice
 mask = len * 4 bytes
 wrap_base = addr & ~(mask - 1)
 next_addr = wrap_base + ((offset + 4) % mask)
-Diagram:
-
 mermaid
 flowchart TD
     A[offset] --> B[offset % mask]
@@ -209,7 +201,7 @@ flowchart LR
     D -->|No| F[Continue]
 If violated:
 
-backend generates rsp_err_valid = '1'
+rsp_err_valid = '1'
 
 rsp_err_code = DECERR
 
@@ -225,8 +217,6 @@ flowchart LR
 Same for bits 1, 2, 3.
 
 11. Error Codes
-The backend generates AXI‑style error codes:
-
 Code	Meaning
 0x00	OKAY
 0x02	SLVERR
@@ -243,17 +233,15 @@ rsp_err_code
 
 rsp_err_info
 
-rsp_err_id
+rsp_id
 
 12. Response Mapping
-AXI responses are converted into parser responses:
-
-Write Response
+Write
 BRESP → rsp_err_code
 
 cmd_id → rsp_id
 
-Read Response
+Read
 RDATA → rsp_data
 
 RRESP → rsp_err_code
@@ -261,26 +249,25 @@ RRESP → rsp_err_code
 cmd_id → rsp_id
 
 13. Atomic Mode
-Atomic mode is handled by the arbiter, not by the backend.
-
+Atomic mode is handled entirely by the arbiter.
 The backend simply executes commands in the order received.
 
 14. Summary
 The AXI‑FULL backend:
 
-converts parser commands into AXI transactions,
+converts parser commands into AXI transactions
 
-supports INCR and WRAP bursts,
+supports INCR and WRAP bursts
 
-enforces 4KB boundary rules,
+enforces 4KB boundary rules
 
-handles WSTRB masking,
+handles WSTRB masking
 
-generates AXI error codes,
+generates AXI error codes
 
-returns responses through t_rsp_in,
+returns responses through t_rsp_in
 
-is designed for simulation, not synthesis.
+is designed for simulation, not synthesis
 
 It is the most complete and protocol‑accurate backend in DexterLab.
 
