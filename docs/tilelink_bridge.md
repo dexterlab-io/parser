@@ -1,34 +1,61 @@
-markdown
 # DexterLab TileLink Bridge
 
-The TileLink Bridge is the module that connects TileLink‑based systems (such as
-RISC‑V SoCs) to the DexterLab command ecosystem.  
-It converts TileLink UL/UH transactions into `t_cmd_out` commands, allowing a
-RISC‑V master to interact with DexterLab backends through the unified command
-interface.
+The TileLink Bridge connects TileLink-based systems to the DexterLab command ecosystem.
 
-This bridge is essential for integrating DexterLab into real RISC‑V systems.
+It translates TileLink transactions into the DexterLab command interface (`t_cmd_out`) and converts DexterLab responses (`t_rsp_in`) back into TileLink responses.
+
+This bridge enables TileLink masters, including RISC-V processors and subsystems, to access DexterLab backends through the same protocol-independent command model used throughout the framework.
 
 ---
 
 # 1. Overview
 
-TileLink is the native bus protocol used in most RISC‑V SoCs:
+TileLink is widely used as the native interconnect protocol within RISC-V systems.
 
-- **TL‑UL** (Uncached Lightweight)  
-- **TL‑UH** (Uncached Heavyweight)  
+Supported TileLink profiles include:
 
-DexterLab uses AXI‑FULL, AXI‑LITE, AHB‑FULL, AHB‑LITE, and Generic backends.  
-Therefore, a bridge is required to translate TileLink transactions into DexterLab
-commands (`t_cmd_out`), and to translate DexterLab responses (`t_rsp_in`) back
-into TileLink responses.
+- TL-UL (TileLink Uncached Lightweight)
+- TL-UH (TileLink Uncached Heavyweight)
 
-The bridge supports:
+DexterLab executes commands through a unified architecture:
 
-- TL → DexterLab (`t_cmd_out`)  
-- DexterLab (`t_rsp_in`) → TL  
+```text
+Parser / Master
+        |
+        v
+     Arbiter
+        |
+        v
+     Backend
+        |
+        v
+       Bus
+```
 
-Backend selection (AXI/AHB/Generic) is handled by the arbiter + backend layer.
+The TileLink Bridge acts as an adapter between the TileLink protocol and the DexterLab command infrastructure.
+
+It performs:
+
+```text
+TileLink Request
+        |
+        v
+     t_cmd_out
+        |
+        v
+     Arbiter
+        |
+        v
+     Backend
+        |
+        v
+      t_rsp_in
+        |
+        v
+TileLink Response
+```
+
+Backend selection remains entirely independent of TileLink.
 
 ---
 
@@ -36,160 +63,337 @@ Backend selection (AXI/AHB/Generic) is handled by the arbiter + backend layer.
 
 ```mermaid
 flowchart LR
-    A[TileLink Master (RISC-V)] --> B[TileLink Bridge]
+
+    A[TileLink Master]
+        --> B[TileLink Bridge]
+
     B --> C[t_cmd_out]
+
     C --> D[Arbiter]
+
     D --> E[Backend Executor]
+
     E --> D
+
     D --> F[t_rsp_in]
+
     F --> B
+
     B --> A
-3. TileLink Concepts
-TileLink transactions include:
+```
 
-a channel — requests
+---
 
-d channel — responses
+# 3. TileLink Scope
 
-optional b, c, e channels — used only in coherent systems (not supported)
+TileLink defines multiple communication channels.
 
-The bridge focuses on:
+The bridge supports only the channels required for uncached operation.
 
-TL‑UL (Uncached Lightweight)
-single‑beat reads/writes
+### Supported Channels
 
-simple address/data semantics
+| Channel | Purpose |
+|----------|----------|
+| A | Requests |
+| D | Responses |
 
-TL‑UH (Uncached Heavyweight)
-multi‑beat bursts
+### Unsupported Channels
 
-wrap semantics
+The following coherent-system channels are not currently supported:
 
-atomic operations
+| Channel | Purpose |
+|----------|----------|
+| B | Probe |
+| C | Release |
+| E | Grant Acknowledge |
 
-These map naturally to DexterLab’s t_cmd_out.
+As a result:
 
-4. Mapping TileLink → t_cmd_out
-TileLink Field	t_cmd_out Field
-a.opcode	cmd_write / read
-a.address	cmd_addr
-a.size	cmd_len (converted to beats)
-a.mask	cmd_wstrb
-a.data	cmd_data
-a.source	cmd_id
-a.param	burst / wrap / atomic
+```text
+TL-C
+```
 
+is currently outside the scope of DexterLab.
 
-TileLink opcodes
-Opcode	Meaning	Mapping
-PutFullData	write	cmd_write = 1
-PutPartialData	masked write	cmd_write = 1 + WSTRB
-Get	read	cmd_write = 0
-Arithmetic	atomic	cmd_atomic = 1
-Logical	atomic	cmd_atomic = 1
-Intent	prefetch	ignored
-Acquire	cached	not supported
+---
 
+# 4. Mapping TileLink to `t_cmd_out`
 
-5. Mapping t_rsp_in → TileLink
-t_rsp_in Field	TileLink Field
-rsp_data	d.data
-rsp_err_code	d.error
-rsp_id	d.source
-rsp_last	d.last
+TileLink requests are translated into the protocol-independent DexterLab command interface.
 
+## Field Mapping
 
-Error mapping
-TileLink supports only one error bit.
+| TileLink Field | DexterLab Field |
+|----------------|-----------------|
+| a.address | cmd_addr |
+| a.source | cmd_id |
+| a.data | cmd_data |
+| a.mask | cmd_wstrb |
+| a.size | cmd_size |
+| a.opcode | cmd_write / command type |
+| a.param | burst / wrap / lock attributes |
 
-DexterLab Error	TL Error
-OKAY	0
-SLVERR	1
-DECERR	1
-BURST_ERR	1
-BOUNDARY_ERR	1
+---
 
+## Opcode Mapping
 
-6. Burst Semantics
-TileLink UL/UH supports:
+| TileLink Opcode | Meaning | DexterLab Mapping |
+|-----------------|----------|-------------------|
+| PutFullData | Full write | cmd_write = 1 |
+| PutPartialData | Masked write | cmd_write = 1 + cmd_wstrb |
+| Get | Read | cmd_write = 0 |
+| ArithmeticData | Atomic operation | cmd_lock = 1 |
+| LogicalData | Atomic operation | cmd_lock = 1 |
+| Intent | Prefetch | Ignored |
+| Acquire* | Cache-coherent operation | Not supported |
 
-single‑beat transfers
+Atomic TileLink operations are translated into locked DexterLab commands.
 
-multi‑beat transfers (UH)
+Ownership protection is then enforced by the arbiter.
 
-wrap bursts (UH)
+---
+
+# 5. Mapping `t_rsp_in` to TileLink
+
+Backend responses are translated into TileLink D-channel responses.
+
+## Response Mapping
+
+| DexterLab Field | TileLink Field |
+|-----------------|----------------|
+| rsp_data | d.data |
+| rsp_id | d.source |
+| rsp_last | d.last |
+| rsp_err_code | d.error |
+| rsp_end_cmd | Transaction complete |
+
+---
+
+# 6. Error Handling
+
+TileLink provides a single error indication bit.
+
+The complete DexterLab runtime error model is therefore compressed into:
+
+```text
+d.error = 0
+```
+
+Success.
+
+```text
+d.error = 1
+```
+
+Failure.
+
+Examples:
+
+```text
+AXI_FULL SLVERR
+AXI_FULL DECERR
+AXI_FULL TIMEOUT
+AHB_FULL ERROR
+AHB_LITE BOUNDARY_ERR
+AHB_LITE BURST_ERR
+```
+
+all become:
+
+```text
+d.error = 1
+```
+
+The detailed backend error classification remains available internally through:
+
+```text
+rsp_err_code
+rsp_err_addr
+rsp_err_beat
+rsp_err_id
+```
+
+See:
+
+```text
+cmd_errors.md
+```
+
+for the complete DexterLab error database.
+
+---
+
+# 7. Burst Semantics
+
+TL-UH supports multi-beat transfers.
 
 These map directly to:
 
+```text
 cmd_burst
+cmd_len
+```
 
-cmd_wrap
+within `t_cmd_out`.
 
-cmd_len (1–256 beats)
+Examples:
 
-Wrap mask
-mermaid
+| TileLink | DexterLab |
+|-----------|-----------|
+| Single beat | cmd_len = 1 |
+| Multi-beat | cmd_burst = 1 |
+| Burst sequence | cmd_len > 1 |
+
+Maximum supported burst length follows backend limits.
+
+---
+
+# 8. Wrap Semantics
+
+TL-UH wrapping operations map to:
+
+```text
+cmd_wrap = 1
+```
+
+Address generation is then performed by the selected backend.
+
+Conceptually:
+
+```mermaid
 flowchart TD
-    A[offset] --> B[offset % (len*4)]
-    B --> C[wrapped address]
-7. Atomic Operations
-TileLink atomic operations:
 
-Arithmetic
+    A[Current Offset]
+        --> B[offset mod wrap_window]
 
-Logical
+    B --> C[Wrapped Address]
+```
 
-map to:
+Supported wrap behavior is therefore backend-independent.
 
-Codice
-cmd_atomic = '1'
-Atomicity is enforced by the arbiter.
+---
 
-8. Bridge FSM
-mermaid
+# 9. Atomic Operations
+
+TileLink supports atomic transaction classes through:
+
+- ArithmeticData
+- LogicalData
+
+These operations are translated into locked commands.
+
+```text
+cmd_lock = 1
+```
+
+The arbiter guarantees ownership retention during execution.
+
+Atomicity is enforced by the DexterLab arbitration layer rather than by the backend itself.
+
+---
+
+# 10. Common Execution Model
+
+The TileLink Bridge follows the standard DexterLab execution architecture.
+
+```text
+Phase 1
+--------
+Command execution
+
+Phase 2
+--------
+Response publication
+
+Phase 3
+--------
+Parser ready
+```
+
+This behavior is shared by:
+
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
+- Generic Backend
+
+The TileLink Bridge simply converts requests and responses while preserving this common execution model.
+
+---
+
+# 11. Bridge FSM
+
+A typical bridge implementation follows the sequence:
+
+```mermaid
 stateDiagram-v2
+
     [*] --> TL_RECV
-    TL_RECV --> CMD_BUILD: a_valid
-    CMD_BUILD --> CMD_SEND: ready
-    CMD_SEND --> WAIT_RSP
-    WAIT_RSP --> TL_SEND: rsp_valid
-    TL_SEND --> TL_RECV
-9. Backend Selection
-The TileLink Bridge does not interact directly with AXI/AHB signals.
 
-Backend selection is handled by the DexterLab architecture:
+    TL_RECV*--> CMD_BUILD : a_valid
 
-Codice
-TileLink → t_cmd_out → arbiter → backend → bus
-Supported backends:
+    CMD_B*ILD*--> CMD_SEND : command ready
 
-AXI‑FULL
+    *MD_SEND*--> WAIT_RSP
 
-AXI‑LITE
+    WAIT_RSP --> TL_*END : response received
 
-AHB‑FULL
+    TL_SE*D --> TL_RECV
+*``
 
-AHB‑LITE
+---
 
-Generic
+# 12. Backend Selection
 
-Selection is static at synthesis time.
+*he TileLink Bridge is completely i*dependent of the target backend.
 
-10. Summary
-The TileLink Bridge:
+*he bridge only generates*
 
-connects RISC‑V TileLink masters to DexterLab
+```text
+t_cmd_out
+```
 
-converts TL requests into t_cmd_out
+*nd consumes:
 
-converts t_rsp_in into TL responses
+```text
+t_rsp_in
+*``
 
-supports bursts, wrap, atomic operations
+Supported backend targets*include:
 
-supports AXI‑FULL, AXI‑LITE, AHB‑FULL, AHB‑LITE, and Generic backends
+- AXI-FULL
+- AX*-LITE
+- AHB-FULL
+* AHB-LITE
+- Generic Backend*
+Backend selection is performed by*the system configuration*and not by the bridge itself*
 
-is designed for simulation and future hardware integration
+---
 
-It is the final piece that enables DexterLab to operate inside real RISC‑V SoCs.
+# 13. Design Goals*
+The bridge is designed to provide*
 
-End of Document
+* TileLink compatibility
+- R*SC-V integration
+- Protocol-indepe*dent execution*- Backend reuse*- Unified error handling
+- Unified*arbitration support*
+No*TileLink-specific knowledge*is required inside individual*backends.
+
+---
+
+# 14. Summary
+
+*he DexterLab TileLink Bridge:
+
+- C*nnect* TileLink systems to the DexterLab*ecosystem
+- Converts TileLink requ*sts into `*_cmd_out`
+- Converts `*_rsp_in` into TileLink responses
+-*Supports TL-UL and TL-UH
+-*Supports bursts and wrap semantics*- Translates atomic*operations into arb*ter-controlled locked commands
+- U*es the common Dexter*ab execution model
+- Oper*tes with AXI-FULL, AXI-LITE, AHB-F*LL, AHB-LITE and Generic backends
+*The bridge provides the foundation*for integrating DexterLab into mod*rn RISC-V platforms while preservi*g a unified command architecture.
+*---
+
+# End of Document

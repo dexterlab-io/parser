@@ -75,7 +75,7 @@ xsim_elab:
 # Simulazione
 xsim_run:
 	echo Simulate (Vivado)
-	xsim $(TOP)_sim -tclbatch stop_200us.tcl
+	xsim $(TOP)_sim -tclbatch stop.tcl
 
 # Target completo
 xsim: xsim_compile xsim_elab xsim_run

@@ -1,43 +1,49 @@
-# DexterLab AXI‑LITE Backend
+# DexterLab AXI-LITE Backend
 
-The AXI‑LITE Backend is a simplified executor that converts high‑level parser
-commands (`t_cmd_out`) into AXI‑LITE transactions.  
-It models the AXI‑LITE protocol:
+The AXI-LITE backend converts high-level parser commands (`t_cmd_out`) into AXI-LITE transactions and translates bus responses back into parser responses (`t_rsp_in`).
 
-- AW (write address)
-- W  (write data)
-- B  (write response)
-- AR (read address)
-- R  (read data)
+It models the AXI-LITE protocol:
 
-AXI‑LITE supports **only single‑beat transfers**, therefore:
+- AW (Write Address)
+- W (Write Data)
+- B (Write Response)
+- AR (Read Address)
+- R (Read Data)
+
+AXI-LITE supports only single-beat transfers.
+
+Therefore:
 
 - no bursts,
-- no wrap,
-- no multi‑beat sequences,
-- no boundary rules,
-- no burst errors.
+- no wrap bursts,
+- no multi-beat operations,
+- no burst-length negotiation,
+- no 4KB boundary checks.
 
-This backend is ideal for validating MMIO‑style accesses.
+This backend is intended for MMIO-style accesses and simple peripheral validation.
 
 ---
 
 # 1. Overview
 
-The AXI‑LITE backend receives commands directly from the arbiter and generates
-AXI‑LITE transactions toward an AXI‑LITE slave model.
+The AXI-LITE backend receives commands from the parser/arbiter infrastructure and generates AXI-LITE transactions toward an AXI-LITE slave.
 
-It supports:
+Supported command families include:
 
-- WRITE  
-- READ  
-- CHECK  
+- WRITE
+- READ
+- CHECK
 
-and enforces:
+The backend:
 
-- correct AXI‑LITE timing,
-- correct WSTRB masking,
-- correct response propagation.
+- Generates AXI-LITE transactions
+- Handles WSTRB masking
+- Propagates bus responses
+- Detects protocol violations
+- Detects timeout conditions
+- Returns structured parser responses
+
+The parser command interface remains protocol-independent.
 
 ---
 
@@ -45,161 +51,301 @@ and enforces:
 
 ```mermaid
 flowchart LR
+
     A[t_cmd_out] --> B[AXI-LITE Backend]
+
     B --> C[AXI-LITE AW/W/B + AR/R]
+
     C --> D[AXI-LITE Slave Model]
+
     D --> C
+
     B --> E[t_rsp_in]
-3. AXI‑LITE Channels
-Write Address (AW)
-AWADDR
+```
 
-AWVALID
+---
 
-AWREADY
+# 3. AXI-LITE Channels
 
-Write Data (W)
-WDATA
+## Write Address Channel (AW)
 
-WSTRB
+- AWADDR
+- AWVALID
+- AWREADY
 
-WVALID
+---
 
-WREADY
+## Write Data Channel (W)
 
-Write Response (B)
-BVALID
+- WDATA
+- WSTRB
+- WVALID
+- WREADY
 
-BRESP
+---
 
-BREADY
+## Write Response Channel (B)
 
-Read Address (AR)
-ARADDR
+- BRESP
+- BVALID
+- BREADY
 
-ARVALID
+---
 
-ARREADY
+## Read Address Channel (AR)
 
-Read Data (R)
-RDATA
+- ARADDR
+- ARVALID
+- ARREADY
 
-RRESP
+---
 
-RVALID
+## Read Data Channel (R)
 
-RREADY
+- RDATA
+- RRESP
+- RVALID
+- RREADY
 
-4. Command Mapping
-Field	Meaning
-cmd_write	1 = write, 0 = read
-cmd_addr	AXI‑LITE address
-cmd_len	must be 1 (single beat)
-cmd_data	write data
-cmd_wstrb	AXI byte mask
-cmd_id	response correlation
-cmd_burst	ignored
-cmd_wrap	ignored
-cmd_fifo	ignored
+---
 
+# 4. Command Mapping
 
-If cmd_len > 1, the backend returns:
+| Command Field | Meaning |
+|---------------|----------|
+| cmd_write | 1 = write, 0 = read |
+| cmd_addr | AXI-LITE address |
+| cmd_data | Write data |
+| cmd_wstrb | AXI byte-enable mask |
+| cmd_id | Response correlation |
+| cmd_len | Must be 1 |
+| cmd_burst | Not supported |
+| cmd_wrap | Not supported |
+| cmd_fifo | Not supported |
 
-rsp_err_valid = '1'
+Commands requesting multiple beats are rejected before bus execution.
 
-rsp_err_code = BURST_ERR
+---
 
-5. Backend FSM
-mermaid
+# 5. Backend FSM
+
+The AXI-LITE backend uses a simplified execution state machine.
+
+```mermaid
 stateDiagram-v2
+
     [*] --> IDLE
 
-    IDLE --> AW: cmd_valid & cmd_write = 1
-    AW --> W: AWREADY = 1
-    W --> B: WREADY = 1
-    B --> IDLE: BVALID & BREADY
+    IDLE --> AW : WRI*E
 
-    IDLE --> AR: cmd_valid & cmd_write = 0
-    AR --> R: ARREADY = 1
-    R --> IDLE: RVALID & RLAST
-6. Write Transaction Flow
-mermaid
-sequenceDiagram
+    AW --> W : AWREADY
+
+    W*--> B : WREADY
+
+    B --> ID*E : BVALID
+
+    IDLE --> AR :*READ
+
+    AR --> R : ARREADY
+
+    * --> ID*E : RVALID
+```
+
+The FSM reflects t*e single-be*t nature of AXI-LITE.
+
+---
+
+# 6* Internal Response Pipeline
+
+The b*ckend uses the common DexterLab re*ponse architecture:
+
+```text
+Phase*1
+--------
+Command execution
+
+Phas* 2
+--------
+Response publication
+
+*hase 3
+--------
+Parser ready*```
+
+This execution model is share* across:
+
+- AXI-FULL
+- AXI*LITE
+- AHB-FULL
+- AHB-LITE
+
+*nd guarantees deterministic comman* completion and error reporting.
+
+*--
+
+#*7. Write Transaction Flow
+
+```merm*id
+*equenceDiagram
+
+    participant B *s Backend
+    participant S as AXI*LITE Slave
+
+    B*>>S: AWADDR, AWVALID
+    S*>>B: AWREADY
+
+    B->>S: WDATA* WSTRB, WVALID
+    S->>B:*WREADY
+
+    S->>B: BRESP, BVALID
+
+*   B->>S: B*EADY
+```
+
+---
+
+# 8. Read Transacti*n Flow
+
+```mermaid
+sequenceDiagram*
     participant B as Backend
-    participant S as AXI-LITE Slave
+    *articipant S as AXI-LITE Slave
 
-    B->>S: AWADDR, AWVALID
-    S->>B: AWREADY
+  * B->>S: ARADDR, ARVALID
+    S->>B:*ARREADY
 
-    B->>S: WDATA, WSTRB, WVALID
-    S->>B: WREADY
+    S->>B: RDATA, RRESP, *VALID
 
-    S->>B: BVALID, BRESP
-    B->>S: BREADY
-7. Read Transaction Flow
-mermaid
-sequenceDiagram
-    participant B as Backend
-    participant S as AXI-LITE Slave
-
-    B->>S: ARADDR, ARVALID
-    S->>B: ARREADY
-
-    S->>B: RDATA, RRESP, RVALID
     B->>S: RREADY
-8. Error Handling
-AXI‑LITE supports:
+```
 
-OKAY
+---
+*# 9. WSTRB Handling
 
-SLVERR
+The backend s*pports AXI-LITE write strobes.
 
-The backend maps:
+Ex*mple:
 
-AXI‑LITE	Parser Error
-OKAY	0x00
-SLVERR	0x02
+```text
+WSTRB[0] = 1 -> wri*e byte 0
+WSTRB[0] = 0 -> preserve *yte 0
+```
 
+The backend validates:
+*- strobe alignment
+- transfer-size*consistency
+- write-mask correctne*s
 
-Additional parser errors:
+Invalid configurations generate*
 
-Condition	Error Code
-cmd_len > 1	BURST_ERR
-invalid address	DECERR
+```text
+AXI_LITE WSTRB_ERR
+```
 
+*--
 
-9. Response Mapping
-Write
-BRESP → rsp_err_code
+# 10. Timeout Handling
 
-cmd_id → rsp_id
+The ba*kend supports timeout detection.
 
-Read
-RDATA → rsp_data
+*f a transaction*does not complete within the confi*ured timeout window:
 
-RRESP → rsp_err_code
+```text
+AXI_*ITE TIMEOUT
+```
 
-cmd_id → rsp_id
+is reported to th* parser.
 
-10. Atomic Mode
-Atomic mode is handled by the arbiter.
-The backend executes commands in the order received.
+---
 
-11. Summary
-The AXI‑LITE backend:
+# 11. Parser Error *odes
 
-converts parser commands into AXI‑LITE transactions
+The backend maps AXI-LITE re*ponses to the unified DexterLab er*or database.
 
-supports only single‑beat transfers
+| Code | Meaning |
+|*-------|----------|
+|*16 | AXI_LITE OKAY |
+* 18 | AXI_LITE SLVERR*|
+| 19 | AXI_LITE*DECERR |
+| 20 | AXI*LITE TIMEOUT |
+| 21 | AXI_LITE PRO*_ERR |
+* *2 | AXI_LITE BOUNDARY_ERR |
+| 23 |*AXI_LITE BURST_ERR |
+| 24 | AXI_L*TE ID_ERR |
+| 25 | AXI_LITE WSTRB*ERR |
 
-handles WSTRB masking
+Error reports contain:
 
-propagates AXI‑LITE error codes
+- E*ror code
+- Address*- Command ID
 
-returns responses through t_rsp_in
+Since AXI-LITE is*single-beat, no beat index is requ*red*
 
-is designed for simulation, not synthesis
+---
 
-It is the simplest AXI‑based backend in DexterLab.
+# 12. Response Generation
 
-End of Document
+*esponses returned to the parser in*lude:
+
+```text
+rsp_valid
+rsp_last
+*sp_data
+
+rsp_err_valid
+rsp_err_cod*
+rsp_err_addr
+
+rsp_end_cmd*```
+
+*hese*responses enable:
+
+- command compl*tion tracking
+- diagnostic logging*- error reporting
+- response corre*ation
+
+---
+
+# 13. Atomic Mode
+
+Ato*ic execution is managed entirely b* the arbiter.
+
+The backend execute* commands in the order received.
+
+*--
+
+# 14. Validation Status
+
+Valid*ted through complete regression su*tes including:
+
+- Parser tests
+- M*IO tests
+- Poll tests
+- Dump tests*- AXI-LITE error injection tests
+
+*eference result:
+
+```text*TOTAL EXEC ERRORS = 0
+TOTAL*ERRORS      = 0
+SIMULATION RESULT*= OK
+```
+
+---
+
+# 15. Summary*
+The AXI-LITE backend:
+
+- Converts*parser commands into AXI-LITE tran*actions
+- Supports single-beat acc*sses
+- Supports WSTRB masking
+- Su*ports timeout detection
+- Propagat*s AXI-LITE response codes
+- Implem*nts the unified DexterLab response*architecture
+- Returns structured *esponses through `t_rsp_in`
+- Prov*des a lightweight AXI verification*backend
+
+It is the simplest AXI-ba*ed backend in the DexterLab ecosys*em and is ideal for MMIO-oriented*peripheral validation.
+
+---
+
+# End*of Document

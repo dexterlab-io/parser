@@ -1,131 +1,290 @@
-# DexterLab Release Notes — Version 1.0.0
-Release Date: 2026-09-10  
+# DexterLab Release Notes — Version 1.1.0
+
+Release Date: 2026-11-16  
 Status: Stable
 
-DexterLab 1.0.0 is the first fully documented and stable release of the DexterLab
-command parser and its associated HDL infrastructure.  
-This version introduces a complete command execution pipeline, unified bus
-interfaces, full documentation, and official support for multiple simulation
-environments.
+DexterLab 1.1.0 extends the command parser ecosystem with complete and validated support for AHB-Full and AHB-Lite bus converters.
+
+This release also introduces a simplified and unified internal execution architecture shared across all supported bus protocols, improving maintainability, consistency, and long-term scalability.
 
 ---
 
 # 1. Overview
 
-DexterLab provides a hardware-agnostic command parser capable of generating
-high-level read/write operations, bursts, wraps, FIFO transactions, and atomic
-blocks.  
-Commands are expressed in simple `.cmd` files and executed through a unified
-interface (`t_cmd_out` / `t_rsp_in`) compatible with AXI-FULL, AXI-LITE,
-AHB-FULL, AHB-LITE, and future TileLink integrations.
+DexterLab provides a hardware-agnostic command parser capable of generating high-level transactions including:
 
-This release focuses on stability, clarity, and documentation completeness.
+- SINGLE accesses
+- BURST accesses
+- WRAP accesses
+- FIFO operations
+- Atomic command sequences
+- POLL operations
+- WAIT operations
+- DUMP operations
+- CHECK operations
 
----
+Commands are expressed using simple `.cmd` files and executed through the unified parser interface:
 
-# 2. What’s Included in This Release
+```vhdl
+t_cmd_out
+t_rsp_in
+```
 
-### ✔ Complete Parser Implementation
-- Full `.cmd` file support  
-- Burst, wrap, FIFO, atomic blocks  
-- CHECK operations  
-- Unified error model  
-- Deterministic command translation
-
-### ✔ Unified Command Interface
-- Formal definition of `t_cmd_out`  
-- Formal definition of `t_rsp_in`  
-- Consistent across all backends  
-- Supports multi-master architectures
-
-### ✔ Backends and Wrappers
-- AXI-FULL backend  
-- AXI-LITE wrapper  
-- AHB-FULL backend  
-- AHB-LITE wrapper  
-- Generic backend  
-- Arbiter for multi-source command routing
-
-### ✔ DRY_RUN Mode
-A safe, non-intrusive mode that validates `.cmd` files without generating any
-hardware activity.  
-Ideal for debugging and CI pipelines.
-
-### ✔ Simulation Environments
-Official support for:
-- **GHDL** (fast, pure VHDL)
-- **Vivado/xsim** (accurate AXI/AHB waveform simulation)
-
-Declared compatibility with:
-- **Cadence Xcelium**
-- **Synopsys VCS**
-- **Mentor QuestaSim**
-- **Aldec Riviera-PRO**
-- **ModelSim**
-
-### ✔ Complete Documentation
-All parser-related documents are included:
-- file format  
-- interface  
-- error model  
-- execution flow  
-- DRY_RUN  
-- simulation environments  
-- documentation index  
+The same parser interface is used across all supported bus protocols.
 
 ---
 
-# 3. Stability and Scope
+# 2. What's New in Version 1.1.0
 
-Version 1.0.0 is considered **stable** for:
+### ✔ Complete AHB-Full Support
 
-- parser usage  
-- AXI/AHB integration  
-- simulation workflows  
-- command file development  
-- backend/wrapper integration  
+The AHB-Full converter is now fully implemented and validated.
 
-The master module is currently a placeholder and will evolve in future releases.
+Features include:
 
----
-
-# 4. Known Limitations
-
-- TileLink backend is not yet implemented  
-- No vendor-specific scripts for Cadence/Synopsys/Mentor/Aldec  
-- No GUI tools included  
-- No hardware master FSM (placeholder only)
-
-These limitations will be addressed in future releases.
+- SINGLE transfers
+- INCR bursts
+- WRAP bursts
+- FIFO transactions
+- Timeout handling
+- Error propagation
+- Boundary validation
+- Burst validation
+- WSTRB validation
+- Full regression coverage
 
 ---
 
-# 5. Recommended Usage
+### ✔ Complete AHB-Lite Support
 
-### For HDL Integration
-Use the HDL sources under `rtl/` and the unified command interface.
+The AHB-Lite converter is now fully implemented and validated.
 
-### For Simulation
-Start with GHDL for fast iteration, then use Vivado/xsim for AXI/AHB waveform
-validation.
+Features include:
 
-### For Command Development
-Use DRY_RUN to validate `.cmd` files before running full simulations.
+- SINGLE transfers
+- Multi-beat transfers
+- Internal burst sequencing
+- Timeout handling
+- Error propagation
+- Boundary validation
+- Burst validation
+- WSTRB validation
+- Full regression coverage
+
+The converter maintains the same parser-side semantics while adapting to the simplified AHB-Lite protocol.
 
 ---
 
-# 6. Summary
+### ✔ Unified Error Architecture
 
-DexterLab 1.0.0 delivers:
+Error reporting is now standardized across all supported bus protocols.
 
-- a stable command parser  
-- a unified hardware interface  
-- complete documentation  
-- official simulation support  
-- professional release structure  
+Supported categories include:
 
-This marks the first fully documented and production-ready version of the
-DexterLab command system.
+- Protocol errors
+- Timeout errors
+- Boundary violations
+- Invalid burst configurations
+- Invalid write strobes
+- Bus response errors
+
+Dedicated error-code ranges are available for:
+
+- AXI-Full
+- AXI-Lite
+- AHB-Full
+- AHB-Lite
+
+---
+
+### ✔ Unified Response Pipeline
+
+The parser now uses a consistent response model across all converters:
+
+```text
+Phase 1
+  Command execution
+
+Phase 2
+  Response publication
+
+Phase 3
+  Parser ready
+```
+
+This model is used by:
+
+- AXI-Full
+- AXI-Lite
+- AHB-Full
+- AHB-Lite
+
+---
+
+### ✔ Simplified FSM Architecture
+
+The AHB converters were refactored and simplified:
+
+```text
+IDLE
+WR_ADDR
+WR_DATA
+WR_RESP
+
+RD_ADDR
+RD_DATA
+RD_RESP
+
+ERR_DRAIN
+```
+
+The previous dedicated error-response states were removed and replaced by a unified response architecture.
+
+---
+
+# 3. Included Components
+
+### Parser Core
+
+- Command parser
+- Command scheduler
+- Command validation
+- Response generation
+- Error handling framework
+
+### Bus Converters
+
+- AXI-Full
+- AXI-Lite
+- AHB-Full
+- AHB-Lite
+
+### Reference Slaves
+
+- RAM model
+- FIFO model
+- Error-injection model
+
+### Verification Environment
+
+- GHDL support
+- Vivado / XSIM support
+- Regression command suites
+- Automated validation scripts
+
+---
+
+# 4. Regression Validation
+
+Version 1.1.0 has been validated with complete regression coverage.
+
+Validated areas include:
+
+- Parser functionality
+- Base transactions
+- FIFO transfers
+- Burst transfers
+- Wrap transfers
+- Fill operations
+- Poll operations
+- Dump operations
+- AXI converters
+- AHB converters
+- Error injection
+
+Reference result:
+
+```text
+TOTAL EXEC ERRORS = 0
+TOTAL ERRORS      = 0
+SIMULATION RESULT = OK
+```
+
+---
+
+# 5. Supported Protocols
+
+Current supported bus protocols:
+
+- AXI-Full
+- AXI-Lite
+- AHB-Full
+- AHB-Lite
+
+All protocols share the same parser interface and command format.
+
+---
+
+# 6. Recommended Usage
+
+### HDL Integration
+
+Use the parser through the unified command interface:
+
+```vhdl
+t_cmd_out
+t_rsp_in
+```
+
+and connect the desired bus converter.
+
+---
+
+### Simulation
+
+Recommended workflow:
+
+1. Validate commands with GHDL
+2. Validate waveforms with Vivado / XSIM
+3. Run complete regression suites before release
+
+---
+
+### Command Development
+
+Use:
+
+- DRY_RUN
+- CHECK
+- POLL
+- DUMP
+
+to validate command files before full execution.
+
+---
+
+# 7. Known Limitations
+
+Current limitations include:
+
+- TileLink backend not yet implemented
+- No vendor-specific scripts for:
+  - Cadence Xcelium
+  - Synopsys VCS
+  - Mentor QuestaSim
+  - Aldec Riviera-PRO
+- No GUI front-end tools
+
+These items remain candidates for future releases.
+
+---
+
+# 8. Summary
+
+DexterLab 1.1.0 delivers:
+
+- Stable parser architecture
+- AXI-Full support
+- AXI-Lite support
+- AHB-Full support
+- AHB-Lite support
+- Unified response architecture
+- Unified error model
+- Complete documentation
+- Automated regression environments
+- Fully validated release
+
+This release establishes the common architectural foundation for all currently supported bus protocols and serves as the baseline for future protocol and backend expansions.
 
 ---
 

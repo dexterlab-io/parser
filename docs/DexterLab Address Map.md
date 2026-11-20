@@ -1,226 +1,453 @@
-DexterLab Address Map
-(Versione 2026 — Backend‑Agnostic, Parser‑Driven)
+# DexterLab Address Map
 
-The DexterLab Address Map defines the memory regions exposed by the Generic
-Backend and used by all backends (AXI‑FULL, AXI‑LITE, AHB‑FULL, AHB‑LITE,
-TileLink Bridge).
-It is the canonical reference for register, RAM, and FIFO operations performed
-through the unified command interface (t_cmd_out / t_rsp_in).
+(Version 2026 — Backend-Agnostic, Command-Driven Architecture)
 
-The address map is intentionally simple, deterministic, and easy to extend.
+The DexterLab Address Map defines the logical memory regions exposed by the Generic Backend and referenced throughout the DexterLab ecosystem.
 
-1. Overview
-DexterLab exposes three memory regions:
+These regions provide a common memory model for:
 
-Region	Address Range	Description
-REG	0x0000–0x001F	8 zero‑wait‑state registers
-RAM	0x1000–0x2FFF	RAM with WSTRB + burst support
-FIFO	0x3000 / 0x3100	FIFO write / FIFO read
+- Generic Backend
+- AXI-FULL Backend
+- AXI-LITE Backend
+- AHB-FULL Backend
+- AHB-LITE Backend
+- TileLink Bridge integrations
 
+The address map provides a consistent view of registers, memory and FIFO endpoints, while allowing each backend to implement protocol-specific access mechanisms.
 
-These regions are used by:
+---
 
-Generic backend
+# 1. Overview
 
-AXI‑FULL backend
+The default DexterLab memory space is divided into three primary regions.
 
-AXI‑LITE backend
+| Region | Address Range | Description |
+|----------|----------|----------|
+| REG | 0x0000–0x001F | Control and status registers |
+| RAM | 0x1000–0x2FFF | General-purpose memory region |
+| FIFO | 0x3000 / 0x3100 | FIFO write and read endpoints |
 
-AHB‑FULL backend
+---
 
-AHB‑LITE backend
+## Architecture
 
-TileLink bridge
+```text
+Parser
+   |
+Arbiter
+   |
+Backend
+   |
+Address Map
 
-The parser does not interpret bus semantics — it only enforces address rules
-and boundary constraints.
+REG
+RAM
+FIFO
+```
 
-2. REG Region (0x0000–0x001F)
-Description
-The REG region contains 8 registers, each 32‑bit wide:
+The parser is protocol-independent and does not generate bus-specific transactions.
 
-Register	Address
-REG0	0x0000
-REG1	0x0004
-REG2	0x0008
-REG3	0x000C
-REG4	0x0010
-REG5	0x0014
-REG6	0x0018
-REG7	0x001C
+Backends are responsible for implementing protocol execution while preserving the logical behavior defined by this address map.
 
+---
 
-Supported operations
-WRITE
+# 2. REG Region
 
+## Address Range
+
+```text
+0x0000 – 0x001F
+```
+
+## Description
+
+The register region contains eight 32-bit registers.
+
+| Register | Address |
+|----------|----------|
+| REG0 | 0x0000 |
+| REG1 | 0x0004 |
+| REG2 | 0x0008 |
+| REG3 | 0x000C |
+| REG4 | 0x0010 |
+| REG5 | 0x0014 |
+| REG6 | 0x0018 |
+| REG7 | 0x001C |
+
+---
+
+## Supported Commands
+
+```text
 READ
-
+WRITE
 CHECK
 
 WSTRB_WRITE
 
-BURST (len=1 only)
+SET_ATOMIC protected accesses
+```
 
-atomic sequences
+---
 
-Notes
-No wait‑states
+## Characteristics
 
-No burst support beyond single beat
+- Single-beat accesses
+- No burst execution
+- No wrap execution
+- No FIFO behavior
+- No wait states in the Generic Backend
+- Suitable for control and status registers
 
-No wrap
+---
 
-No FIFO semantics
+# 3. RAM Region
 
-Ideal for control/status registers
+## Address Range
 
-3. RAM Region (0x1000–0x2FFF)
-Description
-The RAM region is a contiguous memory block with:
+```text
+0x1000 – 0x2FFF
+```
 
-full WSTRB support
+## Description
 
-full burst support (INCR, WRAP)
+The RAM region provides the primary memory space used for:
 
-full FIFO semantics (when accessed through FIFO commands)
+- Read/write testing
+- Burst operations
+- Wrap operations
+- Fill operations
+- Dump operations
+- Polling operations
 
-4KB boundary enforcement
+---
 
-error propagation
+## Supported Commands
 
-Supported operations
-WRITE
+### Basic Accesses
 
+```text
 READ
-
+WRITE
 CHECK
-
 WSTRB_WRITE
+```
 
-BURST_WRITE / BURST_READ / BURST_CHECK
+---
 
-WRAP_WRITE / WRAP_READ / WRAP_CHECK
+### Burst Operations
 
-FILL_LEN / FILL_RANGE / FILL_CHECK
+```text
+BURST_READ
+BURST_WRITE
+BURST_CHECK
+```
 
-DUMP_LEN / DUMP_RANGE
+---
 
-DUMP_FILE_LEN / RANGE
+### Wrap Operations
 
-POLL_READ / POLL_TOGGLE / POLL_PING
+```text
+WRAP_READ
+WRAP_WRITE
+WRAP_CHECK
+```
 
-4KB Boundary Rule
-All bursts must remain within a 4KB window:
+---
 
-Codice
-base_addr & 0xFFFFF000
-If a burst crosses the boundary:
+### Fill Operations
 
-the parser splits it
+```text
+FILL_LEN
+FILL_RANGE
+FILL_CHECK
+```
 
-the backend receives multiple bursts
+---
 
-no backend needs to implement splitting logic
+### Dump Operations
 
-Wrap Mask Rule
-Wrap bursts use:
+```text
+DUMP_LEN
+DUMP_RANGE
 
-Codice
-mask = len * 4 bytes
-wrap_base = addr & ~(mask - 1)
-wrapped_addr = wrap_base + (offset % mask)
-4. FIFO Region (0x3000 / 0x3100)
-DexterLab exposes two FIFO endpoints:
+DUMP_FILE_LEN
+DUMP_FILE_RANGE
 
-FIFO	Address	Description
-FIFO_WRITE	0x3000	Push data into FIFO
-FIFO_READ	0x3100	Pop data from FIFO
+DUMP_FILE_CHECK_LEN
+DUMP_FILE_CHECK_RANGE
+```
 
+---
 
-Supported operations
+### Poll Operations
+
+```text
+POLL_READ
+POLL_TOGGLE
+```
+
+---
+
+## Characteristics
+
+- WSTRB support
+- Incrementing burst support
+- Wrap support
+- Multi-beat transfers
+- Error reporting
+- Boundary validation
+
+---
+
+# 4. Boundary Rules
+
+DexterLab validates memory transactions against configured rules before execution.
+
+Large logical operations may be expanded into multiple executable micro-commands when required.
+
+Examples include:
+
+- Large burst transfers
+- Large fill operations
+- Large dump operations
+
+This expansion process is handled by the parser infrastructure before command execution.
+
+Additional details are documented in:
+
+```text
+DexterLab Parser Engine Internals.md
+```
+
+---
+
+# 5. Wrap Operation Rules
+
+Wrap commands are validated by the parser.
+
+The parser verifies:
+
+- Wrap size
+- Alignment
+- Command legality
+
+Examples:
+
+```text
+WRAP_READ
+WRAP_WRITE
+WRAP_CHECK
+```
+
+Address generation itself is backend-specific.
+
+The selected backend is responsible for implementing wrap addressing according to its protocol requirements.
+
+Supported backends include:
+
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
+- Generic Backend
+
+---
+
+# 6. FIFO Region
+
+DexterLab exposes dedicated FIFO endpoints.
+
+| Endpoint | Address | Description |
+|----------|----------|----------|
+| FIFO_WRITE | 0x3000 | Push data into FIFO |
+| FIFO_READ | 0x3100 | Pop data from FIFO |
+
+---
+
+## Supported Commands
+
+```text
 FIFO_WRITE
-
 FIFO_READ
-
 FIFO_CHECK
+```
 
-FIFO semantics
-FIFO_WRITE pushes len words
+---
 
-FIFO_READ pops len words
+## FIFO Semantics
 
-FIFO_CHECK compares popped data with expected values
+### FIFO_WRITE
 
-Underflow → SLVERR
+```text
+FIFO_WRITE <addr> <len> ...
+```
 
-Overflow → backend‑specific error (Generic backend raises SLVERR)
+Pushes data into the FIFO.
 
-Notes
-No wrap
+---
 
-No burst semantics
+### FIFO_READ
 
-No WSTRB
+```text
+FIFO_READ <addr> <len>
+```
 
-No atomicity guarantees (atomic mode still applies at arbiter level)
+Removes entries from the FIFO.
 
-5. Error Model
+---
+
+### FIFO_CHECK
+
+```text
+FIFO_CHECK <addr> <len> ...
+```
+
+Reads and compares FIFO contents against expected values.
+
+---
+
+## Characteristics
+
+- Dedicated FIFO endpoints
+- Streaming semantics
+- No wrap operations
+- No address progression
+- No memory-style bursts
+
+Atomic ownership protection remains available through:
+
+```text
+SET_ATOMIC
+```
+
+which propagates:
+
+```text
+cmd_lock
+```
+
+to the arbiter.
+
+---
+
+# 7. Error Handling
+
+Address-map violations and execution failures are reported through the unified DexterLab error infrastructure.
+
+Possible failure categories include:
+
+```text
 Address Errors
-Condition	Error
-address outside REG/RAM/FIFO	DECERR
-burst crosses 4KB boundary	BOUNDARY_ERR
-wrap mask invalid	BURST_ERR
-FIFO underflow	SLVERR
-FIFO overflow	SLVERR
+Boundary Errors
+Burst Errors
+Protocol Errors
+Timeout Errors
+FIFO Errors
+```
 
+Specific error code assignments are backend-dependent and documented in:
 
-Backend Errors
-Backends may generate:
+```text
+cmd_errors.md
+```
 
-SLVERR
+---
 
-DECERR
+# 8. Backend Independence
 
-protocol‑specific errors (AXI BRESP/RRESP, AHB HRESP)
+The logical address map remains identical regardless of the selected backend.
 
-The parser maps them into unified error codes.
+Execution paths:
 
-6. Extending the Address Map
-DexterLab allows users to extend the address map for custom peripherals.
+```text
+t_cmd_out
+      |
+      v
+AXI-FULL
+```
 
-Guidelines
-Choose a new region (e.g., 0x4000–0x4FFF)
+```text
+t_cmd_out
+      |
+      v
+AXI-LITE
+```
 
-Implement a backend module that handles accesses to that region
+```text
+t_cmd_out
+      |
+      v
+AHB-FULL
+```
 
-Add documentation for the new region
+```text
+t_cmd_out
+      |
+      v
+AHB-LITE
+```
 
-Ensure no overlap with existing regions
+```text
+t_cmd_out
+      |
+      v
+Generic Backend
+```
 
-Ensure burst/wrap semantics are well‑defined
+The address map therefore remains stable while protocol behavior changes.
 
-Ensure error propagation is implemented
+---
 
-Typical extensions
-custom RAM blocks
+# 9. Extending the Address Map
 
-accelerator memory windows
+Custom address regions may be added as required.
 
-MMIO peripherals
+Typical extensions include:
 
-DMA descriptors
+- Peripheral register blocks
+- Accelerator memories
+- DMA descriptors
+- Shared memory windows
+- Hardware queues
+- Streaming engines
 
-streaming engines
+Recommended guidelines:
 
-hardware queues
+1. Use a non-overlapping address range.
+2. Define command support explicitly.
+3. Define burst behavior explicitly.
+4. Define wrap behavior explicitly.
+5. Implement error reporting.
+6. Update the documentation.
 
-7. Address Map Summary
-Region	Range	Features
-REG	0x0000–0x001F	registers, single‑beat
-RAM	0x1000–0x2FFF	bursts, wrap, WSTRB, FIFO semantics
-FIFO	0x3000 / 0x3100	push/pop streaming
+---
 
+# 10. Address Map Summary
 
-The address map is intentionally simple, deterministic, and extensible.
+| Region | Range | Main Features |
+|----------|----------|----------|
+| REG | 0x0000–0x001F | Control and status registers |
+| RAM | 0x1000–0x2FFF | WSTRB, burst, wrap, fill, dump, polling |
+| FIFO | 0x3000 / 0x3100 | Streaming FIFO operations |
 
-End of Document
+---
+
+# 11. Summary
+
+The DexterLab Address Map provides a simple and deterministic memory model shared across all supported backends.
+
+It defines:
+
+- Register space
+- General-purpose RAM space
+- FIFO endpoints
+- Command applicability rules
+- Boundary constraints
+- Extension guidelines
+
+The address map forms the logical foundation upon which all DexterLab command execution is built while remaining completely independent of the underlying bus protocol.
+
+---
+
+# End of Document

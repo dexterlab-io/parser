@@ -1,40 +1,59 @@
-markdown
 # DexterLab Parser Master Integration Guide
 
-This document explains how to integrate a hardware master (RISC‑V core, DMA
-engine, FPGA logic, microcontroller subsystem) with the DexterLab command parser
-using the `t_cmd_out` / `t_rsp_in` interface and the master arbiter.
+This document describes how to integrate a hardware command generator with the DexterLab command infrastructure.
 
-The goal is to allow hardware to generate the same high‑level commands normally
-produced by the text parser.
+Supported master types include:
+
+- RISC-V processors
+- DMA engines
+- FPGA command generators
+- Embedded controllers
+- Custom state machines
+
+A hardware master uses the same command and response interfaces as the parser and therefore integrates transparently with the arbiter and backend layers.
 
 ---
 
 # 1. Overview
 
-DexterLab supports two command sources:
+The DexterLab architecture supports multiple command sources.
 
-1. **Parser**  
-   - reads `.cmd` files  
-   - generates `t_cmd_out`  
-   - drives the arbiter
+Current sources include:
 
-2. **Hardware Master**  
-   - RISC‑V core  
-   - DMA engine  
-   - custom FPGA logic  
-   - microcontroller subsystem  
-   - generates `t_cmd_out`  
-   - drives the arbiter
+```text
+Parser Engine
+Hardware Master
+```
 
-Both sources share the same interface:
+Both sources generate:
 
-t_cmd_out → arbiter → backend → bus
+```text
+t_cmd_out
+```
 
-Codice
+and use the same response infrastructure:
 
-The arbiter selects one source at a time, enforcing atomic mode and pending
-rules.
+```text
+t_rsp_out
+t_rsp_in
+```
+
+Command execution follows the standard architecture:
+
+```text
+Command Source
+      |
+      v
+   Arbiter
+      |
+      v
+   Backend
+      |
+      v
+      Bus
+```
+
+The backend is completely unaware of the command origin.
 
 ---
 
@@ -42,227 +61,393 @@ rules.
 
 ```mermaid
 flowchart LR
-    A[Parser] --> C[t_cmd_out]
-    B[Hardware Master] --> C
-    C --> D[Master Arbiter]
-    D --> E[Backend Executor]
+
+    A[Parser]
+        --> D[Arbiter]
+
+    B[Hardware Master]
+        --> D
+
+    D --> E[Backend]
+
     E --> D
+
     D --> F[t_rsp_in]
+
     F --> A
+
     F --> B
-The hardware master behaves exactly like the parser:
+```
 
-same command format
+The hardware master behaves exactly like the parser from the arbiter's perspective.
 
-same timing rules
+---
 
-same atomic semantics
+# 3. Master Interfaces
 
-same error propagation
+A hardware master participates in all three DexterLab interface layers.
 
-3. Master Interface (t_cmd_out)
-The hardware master must generate the following fields:
+---
 
-Field	Description
-cmd_write	1 = write, 0 = read
-cmd_addr	target address
-cmd_len	number of beats (1–256)
-cmd_burst	INCR burst
-cmd_wrap	WRAP burst
-cmd_fifo	FIFO mode
-cmd_atomic	atomic block
-cmd_id	master ID
-cmd_data[]	write data
-cmd_wstrb	byte mask
-cmd_valid	command valid
-cmd_ready	handshake
+# 3.1 Command Interface (`t_cmd_out`)
 
+The master generates transactions through:
 
-Handshake rule:  
-cmd_valid = '1' AND cmd_ready = '1' → command accepted.
+```text
+t_cmd_out
+```
 
-4. Response Interface (t_rsp_in)
-The hardware master receives:
+Core fields include:
 
-Field	Description
-rsp_valid	response valid
-rsp_last	last beat
-rsp_data	read data
-rsp_err_valid	error flag
-rsp_err_code	error code
-rsp_err_info	failing address
-rsp_id	command ID
+| Field | Description |
+|---------|-------------|
+| cmd_write | Read or write operation |
+| cmd_burst | Burst transfer |
+| cmd_wrap | Wrap transfer |
+| cmd_fifo | FIFO transfer |
+| cmd_id | Command identifier |
+| cmd_addr | Start address |
+| cmd_len | Transfer length |
+| cmd_data | Write data |
+| cmd_wstrb | Byte enable mask |
+| cmd_size | Bytes per beat |
+| cmd_prot | Protection attributes |
+| cmd_cache | Cache attributes |
+| cmd_qos | QoS attributes |
+| cmd_lock | Locked execution |
+| cmd_err_code | Error injection support |
 
+The generated command is identical to one produced by the parser.
 
-The master must consume responses until rsp_last = '1'.
+---
 
-5. Arbiter Behavior
-The arbiter selects between:
+# 3.2 Response Control Interface (`t_rsp_out`)
 
-parser commands
+The master indicates its ability to receive responses using:
 
-master commands
+```text
+t_rsp_out
+```
 
-based on:
+Fields:
 
-pending flags
+| Field | Description |
+|---------|-------------|
+| rsp_ready | Accept response data |
+| rsp_err_ready | Accept error reports |
 
-atomic mode
+Typical configuration:
 
-priority rules
+```text
+rsp_ready     = 1
+rsp_err_ready = 1
+```
 
-Priority Rules
-Atomic mode
+---
 
-parser or master can lock the arbiter
+# 3.3 Response Interface (`t_rsp_in`)
 
-no switching allowed until atomic block ends
+The backend returns execution results through:
 
-Pending flags
+```text
+t_rsp_in
+```
 
-if parser has pending commands → parser wins
+Fields:
 
-if master has pending commands → master wins
+| Field | Description |
+|---------|-------------|
+| rsp_valid | Valid response |
+| rsp_last | Last response beat |
+| rsp_data | Read data |
+| rsp_id | Command identifier |
+| rsp_end_cmd | Command completed |
+| rsp_err_valid | Error report valid |
+| rsp_err_code | Error code |
+| rsp_err_addr | Failing address |
+| rsp_err_beat | Failing beat |
+| rsp_err_id | Associated command ID |
 
-Idle state
+---
 
-arbiter selects the first valid source
+# 4. Handshake Rules
 
-6. Master Command Examples
-6.1 Single Write
-vhdl
-cmd_write  <= '1';
-cmd_addr   <= x"8000_0000";
-cmd_len    <= 1;
-cmd_data(0)<= x"DEADBEEF";
-cmd_valid  <= '1';
-6.2 Burst Read
-vhdl
+Command acceptance occurs when:
+
+```text
+valid = 1
+ready = 1
+```
+
+The master must:
+
+1. Generate a complete command.
+2. Assert command valid.
+3. Wait for command acceptance.
+4. Remove or update the command after acceptance.
+
+The same protocol is used by the parser.
+
+---
+
+# 5. Arbiter Interaction
+
+The arbiter manages ownership of backend access.
+
+Responsibilities include:
+
+- Source selection
+- Ownership tracking
+- Response routing
+- Locked sequence management
+
+The hardware master is treated exactly like the parser.
+
+---
+
+# 6. Locked Command Sequences
+
+DexterLab supports ownership locking through:
+
+```text
+cmd_lock
+```
+
+When asserted:
+
+```text
+cmd_lock = 1
+```
+
+the arbiter preserves ownership for the active source and prevents switching to the competing source.
+
+This mechanism is used for protected command sequences.
+
+---
+
+# 7. Command Examples
+
+## Single Read
+
+```vhdl
 cmd_write <= '0';
-cmd_addr  <= x"8000_1000";
-cmd_len   <= 16;
+cmd_addr  <= x"80000000";
+cmd_len   <= 1;
+```
+
+---
+
+## Single Write
+
+```vhdl
+cmd_write    <= '1';
+cmd_addr     <= x"80000000";
+cmd_len      <= 1;
+cmd_data(0)  <= x"DEADBEEF";
+```
+
+---
+
+## Burst Read
+
+```vhdl
+cmd_write <= '0';
 cmd_burst <= '1';
-cmd_valid <= '1';
-6.3 Atomic Sequence
-vhdl
-cmd_atomic <= '1';
-cmd_valid  <= '1';
--- multiple commands
-cmd_atomic <= '0';
-7. Timing Requirements
-The hardware master must:
+cmd_len   <= 16;
+cmd_addr  <= x"80001000";
+```
 
-assert cmd_valid only when ready to send a full command
+---
 
-wait for cmd_ready = '1'
+## Burst Write
 
-deassert cmd_valid after acceptance
+```vhdl
+cmd_write <= '1';
+cmd_burst <= '1';
+cmd_len   <= 16;
+```
 
-handle multi‑beat responses
+---
 
-handle backend wait‑states
+## Locked Sequence
 
-handle error responses
+```vhdl
+cmd_lock <= '1';
+```
 
-The arbiter guarantees:
+Ownership remains assigned to the master until the protected sequence completes.
 
-no starvation
+---
 
-no interleaving during atomic mode
+# 8. Response Processing
 
-deterministic switching rules
+Masters should process responses according to the common DexterLab execution model.
 
-8. Integration with Backends
-The master does not interact directly with AXI/AHB/TileLink signals.
+```text
+Phase 1
+--------
+Command execution
 
-Instead:
+Phase 2
+--------
+Response publication
 
-Codice
-master → arbiter → backend → bus
-Backends convert t_cmd_out into:
+Phase 3
+--------
+Command complete
+```
 
-AXI‑FULL transactions
+Command completion is detected through:
 
-AXI‑Lite transactions
+```text
+rsp_end_cmd = 1
+```
 
-AHB‑FULL transactions
+---
 
-AHB‑Lite transactions
+# 9. Error Handling
 
-TileLink UL/UH transactions (via TileLink Bridge)
+Runtime errors are reported through:
 
-The master remains completely bus‑agnostic.
+```text
+rsp_err_valid
+rsp_err_code
+rsp_err_addr
+rsp_err_beat
+rsp_err_id
+```
 
-9. Integration with TileLink (RISC‑V)
-The TileLink bridge converts TL transactions into t_cmd_out.
+Typical software or hardware responses include:
 
-A RISC‑V core can generate DexterLab commands by performing:
+- Retry operation
+- Abort operation
+- Trigger interrupt
+- Log diagnostic information
+- Report fault
 
-TileLink Op	DexterLab Meaning
-TL Get	READ
-TL PutFull	WRITE
-TL PutPartial	masked WRITE
-TL Arithmetic	atomic
-TL Logical	atomic
-TL UH	burst/wrap
+Complete error definitions are documented in:
 
+```text
+cmd_errors.md
+```
 
-The arbiter handles TileLink‑generated commands exactly like parser commands.
+---
 
-10. Recommended Master Architecture
-mermaid
+# 10. Backend Independence
+
+The master never interacts directly with bus protocols.
+
+The master generates:
+
+```text
+t_cmd_out
+```
+
+and receives:
+
+```text
+t_rsp_in
+```
+
+The backend converts the command into:
+
+- AXI-FULL transactions
+- AXI-LITE transactions
+- AHB-FULL transactions
+- AHB-LITE transactions
+- Generic Backend accesses
+
+This keeps the master completely protocol-independent.
+
+---
+
+# 11. TileLink Integration
+
+A TileLink master may access DexterLab through the TileLink Bridge.
+
+Mappings include:
+
+| TileLink Operation | DexterLab Command |
+|-------------------|------------------|
+| Get | READ |
+| PutFullData | WRITE |
+| PutPartialData | Masked WRITE |
+| ArithmeticData | Locked command |
+| LogicalData | Locked command |
+| TL-UH Burst | BURST / WRAP |
+
+The TileLink Bridge translates these transactions into standard DexterLab commands.
+
+---
+
+# 12. Recommended Master Architecture
+
+```mermaid
 flowchart TD
-    A[Interrupt Handler] --> B[Event Queue]
+
+    A[Interrupt Sources]
+        --> B[Event Queue]
+
     B --> C[Master FSM]
+
     C --> D[Command Builder]
+
     D --> E[t_cmd_out]
+
     E --> F[Arbiter]
+
     F --> G[Backend]
+
     G --> F
+
     F --> H[t_rsp_in]
+
     H --> C
-The master should include:
+```
 
-a command builder
+Recommended blocks:
 
-a response handler
+- Event queue
+- Command FSM
+- Command builder
+- Response handler
+- Error handler
+- Optional lock controller
 
-an atomic controller
+---
 
-a burst generator
+# 13. Potential Hardware Masters
 
-a FIFO engine (optional)
+Future integrations may include:
 
-11. Summary
-The hardware master:
+- RISC-V processors
+- DMA engines
+- SPI controllers
+- UART controllers
+- I²C controllers
+- CAN controllers
+- Ethernet interfaces
+- FPGA accelerators
+- Custom verification engines
 
-generates the same commands as the parser
+All integrate through the same DexterLab interfaces.
 
-uses the same interface (t_cmd_out)
+---
 
-receives the same responses (t_rsp_in)
+# 14. Summary
 
-is arbitrated together with the parser
+A DexterLab hardware master:
 
-supports bursts, wrap, atomic, FIFO
+- Generates standard `t_cmd_out` commands
+- Uses `t_rsp_out` for flow control
+- Receives responses through `t_rsp_in`
+- Participates in arbitration alongside the parser
+- Supports burst, wrap, FIFO and locked operations
+- Is completely independent of AXI, AHB and other bus protocols
+- Can be implemented in software-driven, event-driven or hardware-driven architectures
 
-integrates with AXI/AHB/TileLink through dedicated backends
+This unified model allows parsers, processors, DMA engines and custom hardware blocks to coexist and share the same backend infrastructure.
 
-behaves exactly like a second parser source
+---
 
-This makes DexterLab a dual‑source command engine capable of executing commands
-from:
-
-text scripts
-
-hardware masters
-
-RISC‑V cores
-
-DMA engines
-
-FPGA logic
-
-all through the same unified interface.
-
-End of Document
+# End of Document

@@ -1,45 +1,71 @@
-# DexterLab AXI‑FULL Backend
+# DexterLab AXI-FULL Backend
 
-The AXI‑FULL Backend is the most complete and protocol‑accurate executor in the
-DexterLab parser ecosystem.  
-It receives commands from the arbiter (`t_cmd_out`) and generates real AXI‑FULL
-transactions on all five channels:
+The AXI-FULL backend is the most complete and protocol-accurate executor in the DexterLab parser ecosystem.
 
-- AW (write address)
-- W  (write data)
-- B  (write response)
-- AR (read address)
-- R  (read data)
+It receives commands from the arbiter (`t_cmd_out`) and generates AXI-FULL transactions across all five AXI channels:
 
-This backend is used to validate AXI‑FULL behavior in simulation, including:
+- AW (Write Address)
+- W (Write Data)
+- B (Write Response)
+- AR (Read Address)
+- R (Read Data)
 
-- burst semantics (INCR, WRAP)
+The backend supports:
+
+- SINGLE transfers
+- INCR bursts
+- WRAP bursts
+- FIFO transactions
+- Multi-beat sequences
 - WSTRB masking
-- 4KB boundary rules
-- multi‑beat write/read sequences
-- error propagation
-- timing correctness
+- 4KB boundary validation
+- Timeout detection
+- Error propagation
+
+The backend is intended for simulation and verification environments and acts as the reference implementation for AXI-based parser integration.
 
 ---
 
 # 1. Overview
 
-The AXI‑FULL backend converts high‑level parser commands into AXI transactions.
-It is designed for **simulation**, not synthesis, and therefore:
+The AXI-FULL backend converts high-level parser commands into AXI transactions while preserving the protocol-independent parser interface.
 
-- accepts commands immediately,
-- uses a simple FSM,
-- models AXI behavior faithfully,
-- enforces AXI protocol rules,
-- generates AXI error codes when needed.
+Supported command families include:
 
-The backend connects **directly** to the arbiter:
+- WRITE
+- READ
+- CHECK
+- BURST_WRITE
+- BURST_READ
+- BURST_CHECK
+- WRAP_WRITE
+- WRAP_READ
+- WRAP_CHECK
+- FIFO_WRITE
+- FIFO_READ
+- FIFO_CHECK
 
-parser → arbiter → axi_full_backend → AXI bus
+The backend:
 
-Codice
+- Generates AXI transactions
+- Tracks burst execution
+- Generates wrap addresses
+- Enforces protocol rules
+- Detects invalid transactions
+- Manages timeout conditions
+- Returns structured responses to the parser
 
-and returns responses through `t_rsp_in`.
+The backend connects directly to the arbiter:
+
+```text
+Parser
+   |
+Arbiter
+   |
+AXI-FULL Backend
+   |
+AXI Bus
+```
 
 ---
 
@@ -47,228 +73,372 @@ and returns responses through `t_rsp_in`.
 
 ```mermaid
 flowchart LR
+
     A[t_cmd_out] --> B[AXI-FULL Backend]
+
     B --> C[AXI AW/W/B + AR/R Channels]
+
     C --> D[AXI Slave Model]
+
     D --> C
+
     B --> E[t_rsp_in]
-3. AXI‑FULL Channels
-The backend drives all AXI‑FULL signals.
+```
 
-Write Address Channel (AW)
-AWADDR
+---
 
-AWLEN
+# 3. AXI-FULL Channels
 
-AWSIZE
+## Write Address Channel (AW)
 
-AWBURST
+- AWADDR
+- AWLEN
+- AWSIZE
+- AWBURST
+- AWVALID
+- AWREADY
 
-AWVALID
+### Optional AXI-FULL Signals
 
-AWREADY
+- AWLOCK
+- AWREGION
+- AWQOS
 
-Write Data Channel (W)
-WDATA
+---
 
-WSTRB
+## Write Data Channel (W)
 
-WLAST
+- WDATA
+- WSTRB
+- WLAST
+- WVALID
+- WREADY
 
-WVALID
+---
 
-WREADY
+## Write Response Channel (B)
 
-Write Response Channel (B)
-BVALID
+- BVALID
+- BRESP
+- BREADY
 
-BRESP
+---
 
-BREADY
+## Read Address Channel (AR)
 
-Read Address Channel (AR)
-ARADDR
+- ARADDR
+- ARLEN
+- ARSIZE
+- ARBURST
+- ARVALID
+- ARREADY
 
-ARLEN
+### Optional AXI-FULL Signals
 
-ARSIZE
+- ARLOCK
+- ARREGION
+- ARQOS
 
-ARBURST
+---
 
-ARVALID
+## Read Data Channel (R)
 
-ARREADY
+- RDATA
+- RRESP
+- RLAST
+- RVALID
+- RREADY
 
-Read Data Channel (R)
-RDATA
+---
 
-RRESP
+# 4. Command Mapping
 
-RLAST
+| Command Field | Meaning |
+|---------------|----------|
+| cmd_write | 1 = write, 0 = read |
+| cmd_burst | INCR burst |
+| cmd_wrap | WRAP burst |
+| cmd_fifo | FIFO operation |
+| cmd_atomic | Atomic execution handled by arbiter |
+| cmd_id | Transaction correlation |
+| cmd_addr | AXI address |
+| cmd_len | Number of beats (1–256) |
+| cmd_data | Write data payload |
+| cmd_wstrb | AXI byte-enable mask |
 
-RVALID
+---
 
-RREADY
+# 5. Backend FSM
 
-4. Command Mapping
-Field	Meaning
-cmd_write	1 = write, 0 = read
-cmd_burst	INCR burst
-cmd_wrap	WRAP burst
-cmd_fifo	not used in AXI
-cmd_atomic	atomic mode (arbiter)
-cmd_id	AXI transaction correlation
-cmd_addr	AXI address
-cmd_len	number of beats (1–256)
-cmd_data	write data array
-cmd_wstrb	AXI byte mask
+The backend uses a simplified AXI execution state machine.
 
-
-5. Backend FSM
-mermaid
+```mermaid
 stateDiagram-v2
+
     [*] --> IDLE
 
-    IDLE --> AW: cmd_valid & cmd_write = 1
-    AW --> W: AWREADY = 1
-    W --> B: WLAST = 1
-    B --> IDLE: BVALID & BREADY
+    IDLE --> AW*: WRITE command*    AW --> W : AW*EADY
+    W --> B :*WLAST accepted
+    B --> IDLE : BR*SP*received
 
-    IDLE --> AR: cmd_valid & cmd_write = 0
-    AR --> R: ARREADY = 1
-    R --> IDLE: RLAST = 1
-The FSM is intentionally simple because AXI timing is modeled but not constrained
-by synthesis rules.
+    IDLE -->*AR : READ command
+    AR --> R : A*READY
+    R --> IDLE : RLAST recei*ed
+*``
 
-6. Write Transaction Flow
-mermaid
-sequenceDiagram
-    participant P as Backend
-    participant A as AXI Slave
+The FSM is intentionally simpl* because the backend is designed f*r simulation and protocol validati*n rather than synthesis optimizati*n.
 
-    P->>A: AWADDR, AWLEN, AWBURST, AWVALID
-    A->>P: AWREADY
+---
 
-    loop len beats
-        P->>A: WDATA[i], WSTRB, WVALID
-        A->>P: WREADY
+# 6. Internal Response Pi*eline
+
+The backend uses the common*DexterLab response architecture:
+
+*``text
+Phase 1
+--------
+Command ex*cution
+
+Phase 2
+--------
+*esponse publication
+
+Phase 3
+-----*--
+Parser ready
+```
+
+This executio* model is shared across:
+
+- AXI-FU*L
+- AXI-L*TE
+- AHB-FULL
+- AHB-LITE
+
+and guar*ntees deterministic command comple*ion*and error reporting.
+
+---
+
+# 7. Wr*te Transaction Flow
+
+```mermaid
+se*uenceDiagram
+
+    participant P as*Backend
+    participant A as AX* Slave
+
+    P->*A: AWADDR, AWLEN, AWBURST, AWVALID**   A->>P: AWREADY
+
+   *loop Burst Length
+*       P->>A: WDATA,*WSTRB, WVALID
+        A->*P: WREADY
     end
 
-    P->>A: WLAST
+   *P->>A: WLAST
 
-    A->>P: BVALID, BRESP
-    P->>A: BREADY
-7. Read Transaction Flow
-mermaid
-sequenceDiagram
-    participant P as Backend
-    participant A as AXI Slave
+    A*>>P: BRESP
+```
 
-    P->>A: ARADDR, ARLEN, ARBURST, ARVALID
-    A->>P: ARREADY
+*--
 
-    loop len beats
-        A->>P: RDATA[i], RRESP, RVALID
-        P->>A: RREADY
+# 8. Read Transaction Flow
+
+``*mermaid
+*equenceDiagram
+
+    participant P *s Backend
+    participant*A as AXI Slave
+
+    P->>A: ARADDR* ARLEN, ARBURST, ARVALID
+    A->>P* ARREADY
+
+    loop*Burst Length
+        A->>P: RDATA,*RRESP, RVALID
+        P->>A: RREAD*
     end
 
-    A->>P: RLAST
-8. Burst Semantics
-INCR Burst
-mermaid
-flowchart LR
-    A[addr] --> B[addr + 4] --> C[addr + 8] --> D[...]
-WRAP Burst
-Wrap mask:
+    A*>*P: RLAST
+```
 
-Codice
-mask = len * 4 bytes
-wrap_base = addr & ~(mask - 1)
-next_addr = wrap_base + ((offset + 4) % mask)
-mermaid
-flowchart TD
-    A[offset] --> B[offset % mask]
-    B --> C[wrapped address]
-9. 4KB Boundary Rule
-AXI forbids bursts crossing 4KB boundaries.
+---
 
-mermaid
-flowchart LR
-    A[addr] --> B[addr + 4]
-    B --> C[addr + 8]
-    C --> D{Cross 4KB?}
-    D -->|Yes| E[Error: DECERR]
-    D -->|No| F[Continue]
-If violated:
+# 9. Burst Sem*ntics
 
-rsp_err_valid = '1'
+## INCR Burst
 
-rsp_err_code = DECERR
+```text
+addr*addr + size
+addr + 2*size
+addr + 3*size
+...
+```
 
-rsp_err_info = failing address
+---
 
-10. WSTRB Handling
-WSTRB controls which bytes of WDATA are written.
+## WR*P Burst
 
-mermaid
-flowchart LR
-    A[WSTRB bit 0] -->|1| B[Write byte 0]
-    A -->|0| C[Skip byte 0]
-Same for bits 1, 2, 3.
+The backend computes:
 
-11. Error Codes
-Code	Meaning
-0x00	OKAY
-0x02	SLVERR
-0x03	DECERR
-0x06	BOUNDARY_ERR
-0x07	BURST_ERR
+``*text
+mask
+wrap base
+wrapped offset*wrapped address
+```
 
+according to *XI burst rules.
 
-Errors are returned through:
+Example:
+
+```text**ask      *= len × beat_size
+wrap_base *= addr & ~(mask - 1)
+next_addr *= wrap_base + ((offset + beat_size* mod*mask)
+```
+
+---
+
+# 10. 4KB Boundary*Rule
+
+*XI forbids bursts crossing a 4KB b*undary.
+
+The backend validates:
+
+`*`text
+start*address
+burst_length
+burst_size
+``*
+
+before*issuing the transaction.
+
+If the b*rst*would cross a *KB boundary:
+
+```text
+AXI_FULL BOU*DARY_ERR
+*``
+
+is generated and the command i* aborted before reaching the bus.
+*---
+
+# 11. WSTRB Handling*
+WSTRB controls which bytes of a d*ta word are written.
+
+Example:
+
+``*text
+WSTR*[0] = 1 ->*Write byte 0
+WSTRB[0] =*0 -> Ignore byte 0
+``*
+
+The backend validates:
+
+- St*obe alignment
+- Transfer size cons*stency
+- Write*mask correctness
+
+*nvalid configurations generate:
+
+`*`text
+AXI_FULL WSTRB_ERR
+```
+
+---
+*# 12. Parser Error Codes
+
+The back*nd maps AXI responses to the unifi*d DexterLab error database.
+
+| Cod* | Meaning |
+|--------*----------|
+| 0 | AXI_FULL OKAY |
+* * | AXI_FULL EXOKAY |
+|*2 | AXI_FULL SLVERR |
+| 3 | AX*_FULL DECERR |
+| 4 | AXI_FULL TIME*UT |
+* 5 | AXI_FULL PROT_ERR |
+| 6 |*AXI_FULL BOUNDARY_ERR |
+| 7 | AXI_*ULL*BURST_ERR |
+| 8 | AXI_FULL ID_ERR *
+| 9 | AXI_FULL WSTRB_ERR |
+
+Error*reports contain:
+
+- Error code
+- A*dress
+- Beat index
+- Transaction I*
+
+---
+
+# 13. Response Generation
+
+*esponses returned to the parser in*lude:
+
+```text
+rsp_valid
+rsp_last
+*sp_data
 
 rsp_err_valid
+rsp_err_cod*
+rsp_err_addr
+rsp_err_beat
 
-rsp_err_code
+rsp_en*_cmd
+```
 
-rsp_err_info
+These responses support:*
+- Command completion tracking
+- D*agnostic logging
+- Protocol valida*ion
+- Error reporting
 
-rsp_id
+---
 
-12. Response Mapping
-Write
-BRESP → rsp_err_code
+# 14. *tomic Mode
 
-cmd_id → rsp_id
+Atomic execution is ha*dled entirely by the arbiter.
 
-Read
-RDATA → rsp_data
+The*AXI-FULL backend executes commands*strictly in the order received.
 
-RRESP → rsp_err_code
+-*-
 
-cmd_id → rsp_id
+# 15. Validation Status
 
-13. Atomic Mode
-Atomic mode is handled entirely by the arbiter.
-The backend simply executes commands in the order received.
+Valida*ed through complete regression sui*es including:
 
-14. Summary
-The AXI‑FULL backend:
+- Parser tests
+- FI*O tests
+- Burst tests
+- Wrap tests*- Fill tests
+- Poll tests
+- Dump t*sts
+- AXI error-injection tests
 
-converts parser commands into AXI transactions
+R*ference result:
 
-supports INCR and WRAP bursts
+```text
+TOTAL EXE* ERRORS = 0
+TOTAL ERRORS      = 0
+*IMULATION RESULT = OK
+```
 
-enforces 4KB boundary rules
+---
 
-handles WSTRB masking
+# *6. Summary
 
-generates AXI error codes
+The AXI-FULL backend:
+*- Converts parser commands into AX*-FULL transactions
+- Supports SING*E, BURST, WRAP and FIFO operations*- Supports burst lengths up to 256*beats
+- Enforces 4KB boundary rule*
+- Handles WSTRB masking
+- Handles*timeout detection
+- Detects and re*orts protocol and bus errors
+- Imp*ements the unified DexterLab respo*se architecture
+- Returns structur*d responses through `t_rsp_in`
+- S*rves as the reference high-perform*nce backend in DexterLab
 
-returns responses through t_rsp_in
+It is th* most complete and protocol-accura*e backend in the DexterLab ecosyst*m.
 
-is designed for simulation, not synthesis
+---
 
-It is the most complete and protocol‑accurate backend in DexterLab.
-
-End of Document
+* End of Document
+````*

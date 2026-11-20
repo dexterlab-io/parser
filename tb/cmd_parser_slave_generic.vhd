@@ -7,7 +7,7 @@
 -- ======================================================================
 --  File: cmd_parser_slave_generic.vhd
 --  Author: Dexter
---  Date: 2026-09-08
+--  Date: 2026-10-22
 --  Version: 1.0
 -- ======================================================================
 
@@ -19,6 +19,7 @@ use work.cmd_cfg.all;
 use work.cmd_cmd_pkg.all;
 use work.cmd_pkg.all;
 use work.cmd_math_pkg.all;
+use work.cmd_text_pkg.all;
 
 entity cmd_parser_slave_generic is
     port (
@@ -115,35 +116,60 @@ architecture rtl of cmd_parser_slave_generic is
     signal s_fifo_out_valid : std_logic;
     signal s_fifo_out_ready : std_logic;
 
+	--------------------------------------------------------------------
+	-- FSM
+	--------------------------------------------------------------------
+	type t_state is (
+		idle,       -- equivalente a S_IDLE
+		wr_w,       -- equivalente a S_WRITE
+		wr_resp,    -- equivalente a S_WRITE_DONE
+		rd_r,       -- equivalente a S_READ
+		rd_resp     -- nuovo stato per ritardare strobi READ
+	);
+
+	signal state_current   : t_state := idle;
+	signal state_next      : t_state := idle;
+
+    signal s_wr_beat_done  : std_logic := '0';
+    signal s_rd_beat_done  : std_logic := '0';
+
+
     --------------------------------------------------------------------
-    -- FSM
+    -- ERROR CODE IN
     --------------------------------------------------------------------
-    type t_state is (
-        S_IDLE,
-        S_WRITE,
-        S_WRITE_DONE,
-        S_READ,
-        S_DONE
-    );
-    signal s_state : t_state := S_IDLE;
+    signal s_err_code : std_logic_vector(7 downto 0) := (others => '0');
 
     --------------------------------------------------------------------
     -- RISPOSTA (registri)
     --------------------------------------------------------------------
+    signal s_rsp_end_cmd   : std_logic := '0';
     signal s_rsp_valid     : std_logic := '0';
     signal s_rsp_last      : std_logic := '0';
     signal s_rsp_data      : std_logic_vector(C_DATA_WIDTH-1 downto 0) := (others => '0');
     signal s_rsp_id        : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
     signal s_rsp_err_valid : std_logic := '0';
     signal s_rsp_err_code  : std_logic_vector(7 downto 0) := (others => '0');
-    signal s_rsp_err_info  : std_logic_vector(31 downto 0) := (others => '0');
+    signal s_rsp_err_addr  : std_logic_vector(31 downto 0) := (others => '0');
+    signal s_rsp_err_beat  : std_logic_vector(7 downto 0) := (others => '0');
     signal s_rsp_err_id    : std_logic_vector(C_ID_WIDTH-1 downto 0) := (others => '0');
+
+    signal s_timeout_cnt   : integer range 0 to C_MAX_AXI_TIMEOUT := 0;
+    signal s_timeout       : std_logic := '0';
+    signal s_timeout_reg   : std_logic := '0';
+
+    signal s_test_error_ready_comb : std_logic := '0';
+
+    signal s_wr_addr_reg   : unsigned(31 downto 0) := (others => '0');
+    signal s_wr_index_reg  : integer := 0;
+	signal s_rd_addr_reg   : unsigned(31 downto 0) := (others => '0');
+	signal s_rd_index_reg  : integer := 0;
 
 begin
 
     interrupts <= (others => '0');
 
 
+    s_err_code <= cmd.cmd_err_code;
     --------------------------------------------------------------------
     -- RAM
     --------------------------------------------------------------------
@@ -430,7 +456,93 @@ begin
 		end if;
 	end process FIFO_READ_READY;
 
-	FSM_MAIN : process(clk, resetn)
+	TEST_ERROR_READY_COMB : process(s_rd_active, s_rd_addr)
+	begin
+		s_test_error_ready_comb <= '0';
+
+		if s_rd_active = '1' then
+			if s_rd_addr = x"00004000" then
+				s_test_error_ready_comb <= '1';
+			end if;
+		end if;
+	end process;
+
+	fsm_sync_state_proc : process(clk, resetn)
+	begin
+		if resetn = '0' then
+			state_current <= idle;
+		elsif rising_edge(clk) then
+			state_current <= state_next;
+		end if;
+	end process;
+
+	fsm_next_state_proc : process(
+		state_current,
+		cmd_valid,
+		cmd,
+		s_wr_active,
+		s_rd_data_left
+	)
+	begin
+		-- default
+		state_next <= state_current;
+
+		case state_current is
+
+			----------------------------------------------------------------
+			-- IDLE → decide WRITE o READ
+			----------------------------------------------------------------
+			when idle =>
+				if cmd_valid = '1' then
+					if cmd.cmd_write = '1' then
+						state_next <= wr_w;
+					else
+						state_next <= rd_r;
+					end if;
+				end if;
+
+			----------------------------------------------------------------
+			-- WRITE (wr_w) → termina quando s_wr_active diventa '0'
+			----------------------------------------------------------------
+			when wr_w =>
+				if s_wr_active = '0' then
+					state_next <= wr_resp;
+				else
+					state_next <= wr_w;   -- timeout NON interrompe
+				end if;
+
+			----------------------------------------------------------------
+			-- WRITE RESP (wr_resp) → 1 ciclo → done
+			----------------------------------------------------------------
+			when wr_resp =>
+				state_next <= idle;
+
+			----------------------------------------------------------------
+			-- READ (rd_r) → termina quando non ci sono più beat
+			----------------------------------------------------------------
+			when rd_r =>
+				if s_rd_active = '0' then
+					state_next <= rd_resp;
+				else
+					state_next <= rd_r;   -- timeout NON interrompe
+				end if;
+
+			----------------------------------------------------------------
+			-- READ RESP (rd_resp) → 1 ciclo → done
+			----------------------------------------------------------------
+			when rd_resp =>
+				state_next <= idle;
+
+		end case;
+	end process;
+
+	--------------------------------------------------------------------
+	-- FSM: processo SINCRONO OPERATIVO COMPLETO
+	--  - beat latch WRITE/READ
+	--  - errori AXI beat-by-beat (ritardati di 1 clock)
+	--  - timeout come beat normale, con errore nel ciclo successivo
+	--------------------------------------------------------------------
+	fsm_output_proc : process(clk, resetn)
 		variable wrap_size  : unsigned(31 downto 0);
 		variable wrap_mask  : unsigned(31 downto 0);
 		variable wrap_base  : unsigned(31 downto 0);
@@ -438,7 +550,10 @@ begin
 		variable v_valid    : std_logic;
 	begin
 		if resetn = '0' then
-			s_state          <= S_IDLE;
+
+			----------------------------------------------------------------
+			-- RESET
+			----------------------------------------------------------------
 			cmd_ready        <= '1';
 
 			s_wr_active      <= '0';
@@ -463,91 +578,124 @@ begin
 			s_rsp_id         <= (others => '0');
 			s_rsp_err_valid  <= '0';
 			s_rsp_err_code   <= (others => '0');
-			s_rsp_err_info   <= (others => '0');
+			s_rsp_err_addr   <= (others => '0');
+			s_rsp_err_beat   <= (others => '0');
 			s_rsp_err_id     <= (others => '0');
+			s_rsp_end_cmd    <= '0';
+
+			s_timeout_cnt    <= 0;
+			s_timeout        <= '0';
+			s_timeout_reg    <= '0';
+
+			s_wr_addr_reg    <= (others => '0');
+			s_wr_index_reg   <= 0;
+			s_rd_addr_reg    <= (others => '0');
+			s_rd_index_reg   <= 0;
+
+			s_wr_beat_done   <= '0';
+			s_rd_beat_done   <= '0';
 
 		elsif rising_edge(clk) then
 
-			-- consumo errore (il parser lo guarda, non lo modula)
-			if s_rsp_err_valid = '1' then
-				-- lo teniamo a 1 solo per un ciclo
-				s_rsp_err_valid <= '0';
-			end if;
-
-			-- default per ogni ciclo
+			----------------------------------------------------------------
+			-- DEFAULT
+			----------------------------------------------------------------
 			s_fifo_in_valid <= '0';
 			s_rsp_valid     <= '0';
 			s_rsp_last      <= '0';
+			s_rsp_end_cmd   <= '0';
 
-			case s_state is
+			-- beat_done sono strobi di 1 ciclo
+			s_wr_beat_done  <= '0';
+			s_rd_beat_done  <= '0';
+
+			----------------------------------------------------------------
+			-- TIMEOUT COUNTER
+			--  - attivo solo in rd_r / wr_w
+			--  - s_timeout viene consumato nel ciclo del beat
+			----------------------------------------------------------------
+			if state_current = rd_r or state_current = wr_w then
+				if s_rsp_valid = '1' then
+					s_timeout_cnt <= 0;
+					s_timeout     <= '0';
+				else
+					if s_timeout = '0' and s_timeout_cnt < C_MAX_AXI_TIMEOUT then
+						s_timeout_cnt <= s_timeout_cnt + 1;
+					elsif s_timeout = '0' and s_timeout_cnt = C_MAX_AXI_TIMEOUT then
+						s_timeout_cnt <= 0;
+						s_timeout     <= '1';
+					elsif s_timeout = '1' and s_rd_active = '1' then
+						s_timeout     <= '0';
+					elsif s_timeout = '1' and s_wr_active = '1' then
+						s_timeout     <= '0';
+					end if;
+				end if;
+			else
+				s_timeout_cnt <= 0;
+				s_timeout     <= '0';
+			end if;
+			s_timeout_reg <= s_timeout;
+
+			----------------------------------------------------------------
+			-- CONSUMO ERRORE (1 ciclo)
+			----------------------------------------------------------------
+			if s_rsp_err_valid = '1' then
+				s_rsp_err_valid <= '0';
+			end if;
+
+			----------------------------------------------------------------
+			-- FSM OPERATIVA
+			----------------------------------------------------------------
+			case state_current is
 
 				----------------------------------------------------------------
-				-- IDLE: accetto un nuovo comando
+				-- IDLE
 				----------------------------------------------------------------
-				when S_IDLE =>
-					cmd_ready <= '1';
-
+				when idle =>
 					if cmd_valid = '1' then
 						cmd_ready       <= '0';
 						s_rsp_id        <= std_logic_vector(cmd.cmd_id);
 						s_rsp_err_id    <= std_logic_vector(cmd.cmd_id);
-						s_rsp_err_info  <= std_logic_vector(cmd.cmd_addr);
+						s_rsp_err_addr  <= std_logic_vector(cmd.cmd_addr);
 
-						----------------------------------------------------------------
-						-- ⭐ CHECK 4K BOUNDARY
-						----------------------------------------------------------------
+						-- 4K boundary
 						if s_4k_check_ok = '0' then
 							s_rsp_valid     <= '1';
 							s_rsp_last      <= '1';
 							s_rsp_err_valid <= '1';
-							s_rsp_err_code  <= std_logic_vector(to_unsigned(6,8)); -- BOUNDARY_ERR
+							s_rsp_err_code  <= std_logic_vector(to_unsigned(6,8));
 							s_rsp_data      <= (others => '0');
+							s_rsp_end_cmd   <= '1';
 
-							s_state <= S_DONE;
-
-						----------------------------------------------------------------
-						-- ⭐ CHECK BURST SEMANTICS
-						----------------------------------------------------------------
+						-- burst semantics
 						elsif s_burst_check_ok = '0' then
 							s_rsp_valid     <= '1';
 							s_rsp_last      <= '1';
 							s_rsp_err_valid <= '1';
-							s_rsp_err_code  <= std_logic_vector(to_unsigned(7,8)); -- BURST_ERR
+							s_rsp_err_code  <= std_logic_vector(to_unsigned(7,8));
 							s_rsp_data      <= (others => '0');
+							s_rsp_end_cmd   <= '1';
 
-							s_state <= S_DONE;
-
-						----------------------------------------------------------------
-						-- ⭐ Se tutto OK → dispatch WRITE / READ
-						----------------------------------------------------------------
+						-- WRITE
 						elsif cmd.cmd_write = '1' then
-							------------------------------------------------------------
-							-- WRITE
-							------------------------------------------------------------
 							s_wr_active <= '1';
 							s_wr_addr   <= unsigned(cmd.cmd_addr);
 							s_wr_len    <= cmd.cmd_len;
 							s_wr_index  <= 0;
 
-							-- DECERR se indirizzo fuori range
 							if (unsigned(cmd.cmd_addr) < x"00000020") or
 							(unsigned(cmd.cmd_addr) >= x"00001000" and unsigned(cmd.cmd_addr) <= x"00002FFF") or
 							(unsigned(cmd.cmd_addr) = x"00003000") then
-								s_bresp <= x"00";  -- OKAY
+								s_bresp <= x"00";
 							else
-								s_bresp <= x"03";  -- DECERR
+								s_bresp <= x"03";
 							end if;
 
-							s_state <= S_WRITE;
-
+						-- READ
 						else
-							------------------------------------------------------------
-							-- READ
-							------------------------------------------------------------
 							s_rd_active      <= '1';
 							s_rd_addr        <= unsigned(cmd.cmd_addr);
 
-							-- clamp AXI-style
 							if cmd.cmd_len < 1 then
 								s_rd_total_beats <= 1;
 								s_rd_cmd_left    <= 1;
@@ -565,209 +713,231 @@ begin
 							if (unsigned(cmd.cmd_addr) < x"00000020") or
 							(unsigned(cmd.cmd_addr) >= x"00001000" and unsigned(cmd.cmd_addr) <= x"00002FFF") or
 							(unsigned(cmd.cmd_addr) = x"00003100") then
-								s_rresp <= x"00";  -- OKAY
+								s_rresp <= x"00";
+							elsif (unsigned(cmd.cmd_addr) = x"00004000") then
+								s_rresp <= s_err_code;
 							else
-								s_rresp <= x"03";  -- DECERR
+								s_rresp <= x"03";
 							end if;
-
-							s_state <= S_READ;
 						end if;
 					end if;
 
 				----------------------------------------------------------------
-				-- WRITE: eseguo la write e mando telemetria su rsp_valid/rsp_data
+				-- WRITE (wr_w)
 				----------------------------------------------------------------
-				when S_WRITE =>
+				when wr_w =>
+
 					if s_wr_active = '1' then
 
 						----------------------------------------------------------------
-						-- FIFO WRITE @ 0x00003000
+						-- CASO TIMEOUT: chiude il beat come normale, errore nel ciclo dopo
 						----------------------------------------------------------------
-						if s_wr_addr = x"00003000" then
-							if s_fifo_in_ready = '0' then
-								s_bresp <= x"02";  -- SLVERR
-							else
-								s_fifo_in_data  <= std_logic_vector(cmd.cmd_data(s_wr_index));
-								s_fifo_in_valid <= '1';
-								s_bresp         <= x"00";
+						if s_timeout = '1' then
+							-- latch beat corrente
+							s_wr_addr_reg  <= s_wr_addr;
+							s_wr_index_reg <= s_wr_index;
+
+							-- beat di risposta (dato sintetico)
+							s_rsp_valid <= '1';
+							s_rsp_data  <= x"DEADBEEF";
+							s_rsp_id    <= std_logic_vector(cmd.cmd_id);
+							if s_wr_index = s_wr_len - 1 then
+								s_rsp_last <= '1';
 							end if;
 
-						----------------------------------------------------------------
-						-- REGISTRI 0WS
-						----------------------------------------------------------------
-						elsif s_wr_addr < x"00000020" then
-							case s_wr_addr(4 downto 2) is
-								when "000" => s_reg0 <= std_logic_vector(cmd.cmd_data(s_wr_index));
-								when "001" => s_reg1 <= std_logic_vector(cmd.cmd_data(s_wr_index));
-								when "010" => s_reg2 <= std_logic_vector(cmd.cmd_data(s_wr_index));
-								when "011" => s_reg3 <= std_logic_vector(cmd.cmd_data(s_wr_index));
-								when "100" => s_reg4 <= std_logic_vector(cmd.cmd_data(s_wr_index));
-								when "101" => s_reg5 <= std_logic_vector(cmd.cmd_data(s_wr_index));
-								when "110" => s_reg6 <= std_logic_vector(cmd.cmd_data(s_wr_index));
-								when "111" => s_reg7 <= std_logic_vector(cmd.cmd_data(s_wr_index));
-								when others => null;
-							end case;
+							-- BEAT DONE (errore verrà generato nel ciclo successivo)
+							s_wr_beat_done <= '1';
 
-						----------------------------------------------------------------
-						-- RAM WRITE @ 0x00001000–0x00002FFF
-						----------------------------------------------------------------
-						elsif s_wr_addr >= x"00001000" and s_wr_addr <= x"00002FFF" then
-							-- già gestito da RAM_CONTROL (cs/we/addr/din)
-							null;
+							-- avanzamento burst
+							if s_wr_index < s_wr_len - 1 then
+								s_wr_index <= s_wr_index + 1;
 
-						else
-							s_bresp <= x"03"; -- DECERR
-						end if;
-
-						----------------------------------------------------------------
-						-- TELEMETRIA WRITE verso il parser
-						----------------------------------------------------------------
-						s_rsp_valid <= '1';
-						s_rsp_data  <= std_logic_vector(cmd.cmd_data(s_wr_index));
-						s_rsp_id    <= std_logic_vector(cmd.cmd_id);
-
-						if s_wr_index = s_wr_len - 1 then
-							s_rsp_last <= '1';
-						else
-							s_rsp_last <= '0';
-						end if;
-
-						----------------------------------------------------------------
-						-- avanzamento burst WRITE
-						----------------------------------------------------------------
-						if s_wr_index < s_wr_len - 1 then
-							s_wr_index <= s_wr_index + 1;
-
-							-- avanzamento indirizzo WRITE
-							if cmd.cmd_fifo = '1' then
-								-- FIFO: indirizzo fisso
-								null;
-
-							elsif cmd.cmd_burst = '0' then
-								-- single beat: indirizzo fisso
-								null;
-
-							else
-								-- burst normale
-								if cmd.cmd_wrap = '0' then
-									s_wr_addr <= s_wr_addr + 4;
+								if cmd.cmd_fifo = '1' then
+									null;
+								elsif cmd.cmd_burst = '0' then
+									null;
 								else
-									wrap_size := to_unsigned(s_wr_len * 4, 32);
-									wrap_mask := not (wrap_size - 1);
-									wrap_base := unsigned(cmd.cmd_addr) and wrap_mask;
-									offset    := (s_wr_addr + 4) - wrap_base;
-									offset    := offset mod wrap_size;
-									s_wr_addr <= wrap_base + offset;
+									if cmd.cmd_wrap = '0' then
+										s_wr_addr <= s_wr_addr + 4;
+									else
+										wrap_size := to_unsigned(s_wr_len * 4, 32);
+										wrap_mask := not (wrap_size - 1);
+										wrap_base := unsigned(cmd.cmd_addr) and wrap_mask;
+										offset    := (s_wr_addr + 4) - wrap_base;
+										offset    := offset mod wrap_size;
+										s_wr_addr <= wrap_base + offset;
+									end if;
 								end if;
+							else
+								s_wr_active <= '0';
 							end if;
 
+						----------------------------------------------------------------
+						-- CASO NORMALE WRITE (senza timeout)
+						----------------------------------------------------------------
 						else
-							s_wr_active <= '0';
-							s_state     <= S_WRITE_DONE;
+
+							-- FIFO write
+							if s_wr_addr = x"00003000" then
+								if s_fifo_in_ready = '0' then
+									s_bresp <= x"02";
+								else
+									s_fifo_in_data  <= std_logic_vector(cmd.cmd_data(s_wr_index));
+									s_fifo_in_valid <= '1';
+									s_bresp         <= x"00";
+								end if;
+
+							-- REGISTRI
+							elsif s_wr_addr < x"00000020" then
+								case s_wr_addr(4 downto 2) is
+									when "000" => s_reg0 <= std_logic_vector(cmd.cmd_data(s_wr_index));
+									when "001" => s_reg1 <= std_logic_vector(cmd.cmd_data(s_wr_index));
+									when "010" => s_reg2 <= std_logic_vector(cmd.cmd_data(s_wr_index));
+									when "011" => s_reg3 <= std_logic_vector(cmd.cmd_data(s_wr_index));
+									when "100" => s_reg4 <= std_logic_vector(cmd.cmd_data(s_wr_index));
+									when "101" => s_reg5 <= std_logic_vector(cmd.cmd_data(s_wr_index));
+									when "110" => s_reg6 <= std_logic_vector(cmd.cmd_data(s_wr_index));
+									when "111" => s_reg7 <= std_logic_vector(cmd.cmd_data(s_wr_index));
+									when others => null;
+								end case;
+
+							-- RAM
+							elsif s_wr_addr >= x"00001000" and s_wr_addr <= x"00002FFF" then
+								null;
+
+							-- DECERR
+							else
+								s_bresp <= x"03";
+							end if;
+
+							----------------------------------------------------------------
+							-- RISPOSTA WRITE BEAT
+							----------------------------------------------------------------
+							s_rsp_valid <= '1';
+							s_rsp_data  <= std_logic_vector(cmd.cmd_data(s_wr_index));
+							s_rsp_id    <= std_logic_vector(cmd.cmd_id);
+							if s_wr_index = s_wr_len - 1 then
+								s_rsp_last <= '1';
+							end if;
+
+							----------------------------------------------------------------
+							-- LATCH beat corrente
+							----------------------------------------------------------------
+							s_wr_addr_reg  <= s_wr_addr;
+							s_wr_index_reg <= s_wr_index;
+
+							----------------------------------------------------------------
+							-- BEAT DONE → errore nel ciclo successivo
+							----------------------------------------------------------------
+							s_wr_beat_done <= '1';
+
+							----------------------------------------------------------------
+							-- AVANZAMENTO
+							----------------------------------------------------------------
+							if s_wr_index < s_wr_len - 1 then
+								s_wr_index <= s_wr_index + 1;
+
+								if cmd.cmd_fifo = '1' then
+									null;
+								elsif cmd.cmd_burst = '0' then
+									null;
+								else
+									if cmd.cmd_wrap = '0' then
+										s_wr_addr <= s_wr_addr + 4;
+									else
+										wrap_size := to_unsigned(s_wr_len * 4, 32);
+										wrap_mask := not (wrap_size - 1);
+										wrap_base := unsigned(cmd.cmd_addr) and wrap_mask;
+										offset    := (s_wr_addr + 4) - wrap_base;
+										offset    := offset mod wrap_size;
+										s_wr_addr <= wrap_base + offset;
+									end if;
+								end if;
+							else
+								s_wr_active <= '0';
+							end if;
+
+						end if; -- fine ramo timeout vs normale
+					end if; -- s_wr_active
+
+					----------------------------------------------------------------
+					-- ERRORE WRITE (ritardato di 1 clock)
+					----------------------------------------------------------------
+					if s_wr_beat_done = '1' then
+						s_rsp_err_valid <= '1';
+
+						if s_timeout_reg = '1' then
+							s_rsp_err_code <= x"04";   -- TIMEOUT
+						else
+							s_rsp_err_code <= s_bresp; -- normale
 						end if;
+
+						s_rsp_err_addr <= std_logic_vector(s_wr_addr_reg);
+						s_rsp_err_beat <= std_logic_vector(to_unsigned(s_wr_index_reg, 8));
 					end if;
 
-				----------------------------------------------------------------
-				-- WRITE_DONE: fine comando write, emulo bresp con rsp_err_valid
-				----------------------------------------------------------------
-				when S_WRITE_DONE =>
+					----------------------------------------------------------------
+					-- STROBI FINALI WRITE
+					----------------------------------------------------------------
+				if state_current = wr_w and state_next = wr_resp then
 					s_rsp_err_valid <= '1';
-					s_rsp_err_code  <= s_bresp;
-					s_state         <= S_DONE;
+					s_rsp_end_cmd   <= '1';
+
+					if s_timeout_reg = '1' then
+						s_rsp_err_code <= x"04";   -- TIMEOUT
+					else
+						s_rsp_err_code <= s_bresp; -- normale
+					end if;
+
+					s_rsp_err_addr <= std_logic_vector(s_wr_addr_reg);
+					s_rsp_err_beat <= std_logic_vector(to_unsigned(s_wr_len - 1, 8));
+				end if;
 
 				----------------------------------------------------------------
-				-- READ: produco dati e allineo rsp_err_valid all'ultimo beat
+				-- WRITE RESP
 				----------------------------------------------------------------
-				when S_READ =>
+				when wr_resp =>
+					cmd_ready <= '1';
 
-					-- tracking RAM commands
-					if s_ram_cs_next = '1' and s_ram_we_next = '0' and
-					s_rd_cmd_left > 0 then
+				----------------------------------------------------------------
+				-- READ (rd_r)
+				----------------------------------------------------------------
+				when rd_r =>
+
+					-- decremento comandi RAM
+					if s_ram_cs_next = '1' and s_ram_we_next = '0' and s_rd_cmd_left > 0 then
 						s_rd_cmd_left <= s_rd_cmd_left - 1;
 					end if;
 
 					----------------------------------------------------------------
-					-- selezione sorgente dati
+					-- CASO TIMEOUT: chiude il beat come normale, errore nel ciclo dopo
 					----------------------------------------------------------------
-					v_valid := '0';
+					if s_rd_active = '1' and s_timeout = '1' then
 
-					if s_rd_addr < x"00000020" then
-						v_valid := s_reg_ready_comb;
+						-- latch beat corrente
+						s_rd_addr_reg  <= s_rd_addr;
+						s_rd_index_reg <= s_rd_total_beats - s_rd_data_left;
 
-					elsif s_rd_addr >= x"00001000" and s_rd_addr <= x"00002FFF" then
-						v_valid := s_rvalid_ram;
-
-					elsif s_rd_addr = x"00003100" then
-						v_valid := s_fifo_out_valid;
-
-					else
-						v_valid := '1';  -- indirizzo invalido → dato zero + DECERR
-					end if;
-
-					----------------------------------------------------------------
-					-- produzione dati READ (nessun uso di rsp_ready)
-					----------------------------------------------------------------
-					if v_valid = '1' and s_rd_data_left > 0 then
-
-						if s_rd_addr = x"00003100" then
-							----------------------------------------------------------------
-							-- FIFO READ
-							----------------------------------------------------------------
-							if s_fifo_out_valid = '0' then
-								s_rresp    <= x"02";  -- SLVERR
-								s_rsp_data <= (others => '0');
-							else
-								s_rresp    <= x"00";  -- OKAY
-								s_rsp_data <= s_fifo_out_data;
-							end if;
-
-						else
-							----------------------------------------------------------------
-							-- REGISTRI + RAM + indirizzi invalidi
-							----------------------------------------------------------------
-							if s_rd_addr < x"00000020" then
-								s_rsp_data <= s_reg_data_comb;
-								s_rresp    <= x"00";
-
-							elsif s_rd_addr >= x"00001000" and s_rd_addr <= x"00002FFF" then
-								s_rsp_data <= s_ram_dout;
-								s_rresp    <= x"00";
-
-							else
-								s_rsp_data <= (others => '0');
-								s_rresp    <= x"03";  -- DECERR
-							end if;
+						-- beat di risposta (dato sintetico)
+						s_rsp_valid <= '1';
+						s_rsp_data  <= x"DEADBEEF";
+						s_rsp_id    <= std_logic_vector(cmd.cmd_id);
+						if s_rd_data_left = 1 then
+							s_rsp_last <= '1';
 						end if;
 
-						s_rsp_valid <= '1';
-						s_rsp_id    <= std_logic_vector(cmd.cmd_id);
+						-- BEAT DONE (errore verrà generato nel ciclo successivo)
+						s_rd_beat_done <= '1';
 
-						if s_rd_data_left = 1 then
-							----------------------------------------------------------------
-							-- ultimo beat READ → rsp_last + rsp_err_valid
-							----------------------------------------------------------------
-							s_rsp_last      <= '1';
-							s_rsp_err_valid <= '1';
-							s_rsp_err_code  <= s_rresp;
-
-							s_rd_data_left  <= 0;
-							s_rd_active     <= '0';
-							s_state         <= S_DONE;
-
-						else
+						-- avanzamento burst
+						if s_rd_data_left > 1 then
 							s_rd_data_left <= s_rd_data_left - 1;
 
-							-- avanzamento indirizzo READ
 							if cmd.cmd_fifo = '1' then
-								-- FIFO: indirizzo fisso
 								null;
-
 							elsif cmd.cmd_burst = '0' then
-								-- single beat: indirizzo fisso
 								null;
-
 							else
-								-- burst normale
 								if cmd.cmd_wrap = '0' then
 									s_rd_addr <= s_rd_addr + 4;
 								else
@@ -779,19 +949,153 @@ begin
 									s_rd_addr <= wrap_base + offset;
 								end if;
 							end if;
+						else
+							s_rd_data_left <= 0;
+							s_rd_active    <= '0';
 						end if;
+
+					----------------------------------------------------------------
+					-- CASO NORMALE READ (senza timeout)
+					----------------------------------------------------------------
+					elsif s_rd_active = '1' then
+
+						-- selezione sorgente dati
+						if s_rd_addr < x"00000020" then
+							v_valid := s_reg_ready_comb;
+						elsif s_rd_addr >= x"00001000" and s_rd_addr <= x"00002FFF" then
+							v_valid := s_rvalid_ram;
+						elsif s_rd_addr = x"00003100" then
+							v_valid := s_fifo_out_valid;
+						elsif s_rd_addr = x"00004000" then
+							v_valid := '1';
+						else
+							v_valid := '1';
+						end if;
+
+						-- produzione dati
+						if v_valid = '1' and s_rd_data_left > 0 then
+
+							if s_rd_addr < x"00000020" then
+								s_rresp    <= x"00";
+								s_rsp_data <= s_reg_data_comb;
+
+							elsif s_rd_addr >= x"00001000" and s_rd_addr <= x"00002FFF" then
+								s_rresp    <= x"00";
+								s_rsp_data <= s_ram_dout;
+
+							elsif s_rd_addr = x"00003100" then
+								if s_fifo_out_valid = '0' then
+									s_rresp    <= x"02";
+									s_rsp_data <= (others => '0');
+								else
+									s_rresp    <= x"00";
+									s_rsp_data <= s_fifo_out_data;
+								end if;
+
+							elsif s_rd_addr = x"00004000" then
+								s_rresp    <= s_err_code;
+								s_rsp_data <= (others => '0');
+
+							else
+								s_rsp_data <= (others => '0');
+								s_rresp    <= x"03";
+							end if;
+
+							----------------------------------------------------------------
+							-- RISPOSTA READ BEAT
+							----------------------------------------------------------------
+							s_rsp_valid <= '1';
+							s_rsp_id    <= std_logic_vector(cmd.cmd_id);
+							if s_rd_data_left = 1 then
+								s_rsp_last <= '1';
+							end if;
+
+							----------------------------------------------------------------
+							-- LATCH beat corrente
+							----------------------------------------------------------------
+							s_rd_addr_reg  <= s_rd_addr;
+							s_rd_index_reg <= s_rd_total_beats - s_rd_data_left;
+
+							----------------------------------------------------------------
+							-- BEAT DONE → errore nel ciclo successivo
+							----------------------------------------------------------------
+							s_rd_beat_done <= '1';
+
+							----------------------------------------------------------------
+							-- AVANZAMENTO
+							----------------------------------------------------------------
+							if s_rd_data_left > 1 then
+								s_rd_data_left <= s_rd_data_left - 1;
+
+								if cmd.cmd_fifo = '1' then
+									null;
+								elsif cmd.cmd_burst = '0' then
+									null;
+								else
+									if cmd.cmd_wrap = '0' then
+										s_rd_addr <= s_rd_addr + 4;
+									else
+										wrap_size := to_unsigned(s_rd_total_beats * 4, 32);
+										wrap_mask := not (wrap_size - 1);
+										wrap_base := unsigned(cmd.cmd_addr) and wrap_mask;
+										offset    := (s_rd_addr + 4) - wrap_base;
+										offset    := offset mod wrap_size;
+										s_rd_addr <= wrap_base + offset;
+									end if;
+								end if;
+
+							else
+								s_rd_data_left <= 0;
+								s_rd_active    <= '0';
+							end if;
+						end if;
+					end if; -- fine ramo timeout vs normale
+
+					----------------------------------------------------------------
+					-- ERRORE READ (ritardato di 1 clock)
+					----------------------------------------------------------------
+					if s_rd_beat_done = '1' then
+						s_rsp_err_valid <= '1';
+
+						if s_timeout_reg = '1' then
+							s_rsp_err_code <= x"04";   -- TIMEOUT
+						else
+							s_rsp_err_code <= s_rresp; -- normale
+						end if;
+
+						s_rsp_err_addr <= std_logic_vector(s_rd_addr_reg);
+						s_rsp_err_beat <= std_logic_vector(to_unsigned(s_rd_index_reg, 8));
+					end if;
+
+					----------------------------------------------------------------
+					-- STROBI FINALI READ
+					----------------------------------------------------------------
+					if state_current = rd_r and state_next = rd_resp then
+						s_rsp_err_valid <= '1';
+						s_rsp_end_cmd   <= '1';
+
+						if s_timeout_reg = '1' then
+							s_rsp_err_code <= x"04";   -- TIMEOUT
+						else
+							s_rsp_err_code <= s_rresp; -- normale
+						end if;
+
+						s_rsp_err_addr  <= std_logic_vector(s_rd_addr_reg);
+						s_rsp_err_beat  <= std_logic_vector(to_unsigned(s_rd_total_beats - 1, 8));
 					end if;
 
 				----------------------------------------------------------------
-				-- DONE: fine comando, rialzo cmd_ready
+				-- READ RESP
 				----------------------------------------------------------------
-				when S_DONE =>
+				when rd_resp =>
 					cmd_ready <= '1';
-					s_state   <= S_IDLE;
 
 			end case;
+
 		end if;
-	end process FSM_MAIN;
+	end process;
+
+
 
 	OUTPUT_MAP : process(
 		s_rsp_valid,
@@ -800,8 +1104,9 @@ begin
 		s_rsp_id,
 		s_rsp_err_valid,
 		s_rsp_err_code,
-		s_rsp_err_info,
-		s_rsp_err_id
+		s_rsp_err_addr,
+		s_rsp_err_id,
+		s_rsp_end_cmd
 	)
 	begin
 		rsp_valid.rsp_valid     <= s_rsp_valid;
@@ -811,8 +1116,11 @@ begin
 
 		rsp_valid.rsp_err_valid <= s_rsp_err_valid;
 		rsp_valid.rsp_err_code  <= s_rsp_err_code;
-		rsp_valid.rsp_err_info  <= s_rsp_err_info;
+		rsp_valid.rsp_err_addr  <= s_rsp_err_addr;
+		rsp_valid.rsp_err_beat  <= s_rsp_err_beat;
 		rsp_valid.rsp_err_id    <= s_rsp_err_id;
+
+		rsp_valid.rsp_end_cmd   <= s_rsp_end_cmd;
 	end process OUTPUT_MAP;
 
 end architecture;

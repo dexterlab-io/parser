@@ -1,220 +1,387 @@
 # DexterLab Bus Comparison Guide
 
-This document provides a unified comparison of the bus protocols supported by
-DexterLab through its backend executors:
+This document provides a unified comparison of the bus protocols supported by DexterLab through its backend executors:
 
-- AXI‑FULL  
-- AXI‑LITE  
-- AHB‑FULL  
-- AHB‑LITE  
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
 - TileLink (UL/UH)
 
-The goal is to give developers a clear understanding of the differences,
-strengths, limitations, and use‑cases of each protocol when used with the
-DexterLab command parser.
+The goal is to provide developers with a clear understanding of the strengths, limitations, architectural characteristics, and intended use cases of each protocol when used with the DexterLab command parser.
 
 ---
 
 # 1. Overview
 
-DexterLab supports multiple bus protocols through **modular backends**:
+DexterLab supports multiple bus protocols through dedicated backend modules.
 
 | Protocol | Backend Module |
 |----------|----------------|
-| AXI‑FULL | `backend_axi_full` |
-| AXI‑LITE | `backend_axi_lite` |
-| AHB‑FULL | `backend_ahb_full` |
-| AHB‑LITE | `backend_ahb_lite` |
+| AXI-FULL | `backend_axi_full` |
+| AXI-LITE | `backend_axi_lite` |
+| AHB-FULL | `backend_ahb_full` |
+| AHB-LITE | `backend_ahb_lite` |
 | TileLink | `tilelink_bridge` |
 
-All protocols share the same high‑level command interface:
+All protocols share the same parser-side interface:
 
-t_cmd_out → arbiter → backend → bus → t_rsp_in
+```text
+t_cmd_out
+    |
+Arbiter
+    |
+Backend
+    |
+Bus Protocol
+    |
+t_rsp_in
+```
 
-Codice
+Backends connect directly to the arbiter.
 
-Wrappers no longer exist.  
-Backends connect **directly** to the arbiter.
+Wrappers are no longer required.
 
 ---
 
-# 2. High‑Level Comparison Table
+# 2. Common Architecture
 
-| Feature | AXI‑FULL | AXI‑LITE | AHB‑FULL | AHB‑LITE | TileLink |
-|---------|----------|----------|----------|----------|----------|
-| Multi‑beat bursts | ✔ | ✘ | ✔ | ✘ | ✔ (UH) |
-| Wrap bursts | ✔ | ✘ | ✔ | ✘ | ✔ (UH) |
-| WSTRB support | ✔ | ✔ | ✘ | ✘ | ✔ (mask) |
+All supported protocols use the same execution model.
+
+```text
+Parser
+   |
+Arbiter
+   |
+Backend
+   |
+Bus
+```
+
+and the same response architecture:
+
+```text
+Phase 1
+--------
+Command execution
+
+Phase 2
+--------
+Response publication
+
+Phase 3
+--------
+Parser ready
+```
+
+This approach guarantees consistent command behavior across all supported bus protocols.
+
+---
+
+# 3. High-Level Comparison
+
+| Feature | AXI-FULL | AXI-LITE | AHB-FULL | AHB-LITE | TileLink |
+|----------|----------|----------|----------|----------|----------|
+| Multi-beat transfers | ✔ | ✘ | ✔ | ✔ | ✔ (UH) |
+| Wrap addressing | ✔ | ✘ | ✔ | ✔ | ✔ (UH) |
+| WSTRB / byte masking | ✔ | ✔ | ✘ | ✘ | ✔ |
 | Separate channels | ✔ | ✔ | ✘ | ✘ | ✔ |
-| Wait‑states | ✔ | ✔ | ✔ | ✔ | ✔ |
-| Atomic ops | via arbiter | via arbiter | via arbiter | via arbiter | native |
-| Error codes | rich | simple | simple | simple | simple |
-| 4KB boundary rule | ✔ | ✘ | ✘ | ✘ | ✘ |
-| Performance | ★★★★★ | ★★☆☆☆ | ★★★★☆ | ★★☆☆☆ | ★★★★☆ |
-| Complexity | high | low | medium | low | medium/high |
+| Wait-state support | ✔ | ✔ | ✔ | ✔ | ✔ |
+| Timeout detection | ✔ | ✔ | ✔ | ✔ | Protocol dependent |
+| Atomic execution | Via arbiter | Via arbiter | Via arbiter | Via arbiter | Native |
+| Explicit burst information | ✔ | ✘ | ✔ | ✘ | Protocol defined |
+| 4KB boundary validation | ✔ | ✘ | Configurable | Configurable | ✘ |
+| Error reporting richness | High | Medium | Medium | Medium | Low |
+| Performance potential | ★★★★★ | ★★☆☆☆ | ★★★★☆ | ★★★☆☆ | ★★★★☆ |
+| Protocol complexity | High | Low | Medium | Medium | Medium / High |
 
 ---
 
-# 3. AXI‑FULL
+# 4. AXI-FULL
 
-AXI‑FULL is the most powerful protocol supported by DexterLab.
+AXI-FULL is the most powerful protocol currently supported by DexterLab.
 
-### Strengths
-- multi‑beat bursts (1–256 beats)
-- wrap bursts
+## Strengths
+
+- Multi-beat bursts
+- Wrap bursts
 - WSTRB masking
-- independent AW/W/B and AR/R channels
-- high throughput
-- strict protocol guarantees
-- rich error reporting (OKAY, SLVERR, DECERR, custom)
+- Independent read and write channels
+- High throughput
+- Rich response model
+- Large burst lengths (up to 256 beats)
 
-### Limitations
-- complex timing
-- requires careful VALID/READY handling
-- 4KB boundary rule
+## Limitations
 
-### Best Use Cases
-- high‑performance memory systems  
-- DMA engines  
-- large SoCs  
-- RISC‑V cores with AXI interconnects  
+- Most complex backend
+- Strict VALID/READY handshakes
+- 4KB boundary restriction
+- Larger signal count
 
-### DexterLab Implementation
-Handled by `backend_axi_full`.
+## Best Use Cases
 
----
+- High-performance memory systems
+- DMA engines
+- Large SoCs
+- Advanced FPGA designs
+- AXI interconnect-based systems
 
-# 4. AXI‑LITE
+## DexterLab Implementation
 
-AXI‑LITE is a simplified version of AXI‑FULL.
+Handled by:
 
-### Strengths
-- simple  
-- single‑beat transfers  
-- WSTRB support  
-- ideal for MMIO registers  
-
-### Limitations
-- no bursts  
-- no wrap  
-- limited error reporting  
-
-### Best Use Cases
-- configuration registers  
-- low‑bandwidth peripherals  
-
-### DexterLab Implementation
-Handled by `backend_axi_lite` (direct backend, no wrapper).
+```text
+backend_axi_full
+```
 
 ---
 
-# 5. AHB‑FULL
+# 5. AXI-LITE
 
-AHB‑FULL is a simpler alternative to AXI‑FULL.
+AXI-LITE is a simplified subset of AXI intended for register-oriented accesses.
 
-### Strengths
-- multi‑beat bursts  
-- wrap bursts  
-- deterministic timing  
-- single channel (address + data)  
+## Strengths
 
-### Limitations
-- no WSTRB  
-- limited error reporting  
-- no interleaving  
+- Simple protocol
+- WSTRB support
+- Small signal count
+- Easy integration
+- Ideal for MMIO peripherals
 
-### Best Use Cases
-- microcontroller‑class SoCs  
-- deterministic bus timing environments  
+## Limitations
 
-### DexterLab Implementation
-Handled by `backend_ahb_full`.
+- Single-beat only
+- No bursts
+- No wrapping transactions
+- Lower throughput
 
----
+## Best Use Cases
 
-# 6. AHB‑LITE
+- Configuration registers
+- Status registers
+- Low-bandwidth peripherals
+- Control interfaces
 
-AHB‑LITE is the lightweight version of AHB‑FULL.
+## DexterLab Implementation
 
-### Strengths
-- simple  
-- single‑beat transfers  
-- deterministic timing  
-- easy to integrate  
+Handled by:
 
-### Limitations
-- no bursts  
-- no wrap  
-- no SPLIT/RETRY  
-- no multi‑master support  
-
-### Best Use Cases
-- MMIO registers  
-- low‑bandwidth peripherals  
-- microcontroller subsystems  
-
-### DexterLab Implementation
-Handled by `backend_ahb_lite` (direct backend, no wrapper).
+```text
+backend_axi_lite
+```
 
 ---
 
-# 7. TileLink (UL/UH)
+# 6. AHB-FULL
 
-TileLink is the native RISC‑V protocol.
+AHB-FULL provides burst capability with a simpler bus structure than AXI.
 
-### Strengths
-- multi‑beat bursts (UH)  
-- wrap bursts (UH)  
-- atomic operations (Arithmetic/Logical)  
-- mask‑based writes  
-- scalable  
-- cache‑coherent variants  
+## Strengths
 
-### Limitations
-- more complex than AXI‑LITE/AHB‑LITE  
-- minimal error reporting (single bit)  
-- requires bridge logic for AXI/AHB systems  
+- Multi-beat bursts
+- Wrap bursts
+- Deterministic timing
+- Simpler signaling than AXI
+- Explicit burst information through HBURST
 
-### Best Use Cases
-- RISC‑V SoCs  
-- coherent memory systems  
-- high‑performance interconnects  
+## Limitations
 
-### DexterLab Implementation
-Handled by `tilelink_bridge`, which converts TL → `t_cmd_out`.
+- No WSTRB support
+- Shared address/data pipeline
+- Less transaction flexibility than AXI
+
+## Best Use Cases
+
+- Deterministic embedded systems
+- MCU-class SoCs
+- FPGA subsystems
+- Verification environments
+
+## DexterLab Implementation
+
+Handled by:
+
+```text
+backend_ahb_full
+```
+
+Supports:
+
+- SINGLE
+- BURST
+- WRAP
+- FIFO
+- Timeout detection
+- Full parser error reporting
 
 ---
 
-# 8. Protocol Diagrams
+# 7. AHB-LITE
 
-## AXI‑FULL
+AHB-LITE is a simplified derivative of AHB-FULL.
+
+Unlike AHB-FULL, it does not include the HBURST signal and therefore does not explicitly communicate burst length or burst type to the slave.
+
+The DexterLab implementation preserves the complete high-level parser model and performs sequencing internally.
+
+## Strengths
+
+- Simpler interface than AHB-FULL
+- Multi-beat transfers supported
+- Wrap addressing supported
+- Deterministic timing
+- Easy integration
+- Minimal bus interface
+
+## Limitations
+
+- No HBURST signal
+- No SPLIT responses
+- No RETRY responses
+- No multi-master support
+- Slave does not know burst length in advance
+
+## Best Use Cases
+
+- Lightweight SoCs
+- Embedded microcontrollers
+- Verification environments
+- Memory-mapped peripherals
+
+## DexterLab Implementation
+
+Handled by:
+
+```text
+backend_ahb_lite
+```
+
+The backend internally generates:
+
+- NONSEQ / SEQ sequences
+- Incrementing addresses
+- Wrap addresses
+
+while exposing a standard AHB-LITE interface to the bus.
+
+---
+
+# 8. TileLink (UL/UH)
+
+TileLink is the native interconnect protocol of many RISC-V systems.
+
+## Strengths
+
+- Multi-beat transfers (UH)
+- Wrap-style address behavior
+- Byte masking
+- Native atomic operations
+- Scalable architecture
+- Cache-coherent variants
+
+## Limitations
+
+- More complex than AXI-LITE and AHB-LITE
+- Requires bridge logic in mixed systems
+- Protocol-specific terminology
+
+## Best Use Cases
+
+- RISC-V SoCs
+- Cache-coherent systems
+- Modern interconnect fabrics
+- Research and custom architectures
+
+## DexterLab Implementation
+
+Handled through:
+
+```text
+tilelink_bridge
+```
+
+which converts TileLink traffic into the internal parser command model.
+
+---
+
+# 9. Protocol Diagrams
+
+## AXI-FULL
 
 ```mermaid
 flowchart LR
     AW --> W --> B
     AR --> R
-AHB‑FULL
-mermaid
+```
+
+---
+
+## AHB-FULL
+
+```mermaid
 flowchart LR
-    A[ADDR+CTRL] --> B[DATA] --> C[RESP]
-TileLink
-mermaid
+    A[ADDR + CTRL]
+    --> B[DATA]
+    --> C[RESP]
+```
+
+---
+
+## AHB-LITE
+
+```mermaid
 flowchart LR
-    A[a-channel] --> B[d-channel]
-9. Summary
-DexterLab supports a wide range of bus protocols through modular backends:
+    A[NONSEQ]
+    --> B[SEQ]
+    --> C[SEQ]
+    --> D[SEQ]
+```
 
-AXI‑FULL → high‑performance systems
+Burst sequencing exists, but burst metadata is not explicitly communicated through HBURST.
 
-AXI‑LITE → simple MMIO peripherals
+---
 
-AHB‑FULL → deterministic mid‑range systems
+## TileLink
 
-AHB‑LITE → microcontroller‑class peripherals
+```mermaid
+flowchart LR
+    A[A Channel]
+    --> B[D Channel]
+```
 
-TileLink → RISC‑V native interconnects
+---
 
-All protocols share the same high‑level command interface, making the parser
-backend‑agnostic and highly reusable.
+# 10. Selecting a Backend
 
-End of Document
+| Requirement | Recommended Protocol |
+|------------|----------------------|
+| Maximum performance | AXI-FULL |
+| Register access | AXI-LITE |
+| Deterministic bursts | AHB-FULL |
+| Lightweight embedded systems | AHB-LITE |
+| Native RISC-V environment | TileLink |
+
+---
+
+# 11. Summary
+
+DexterLab supports a wide range of bus protocols through modular backend implementations.
+
+- AXI-FULL → High-performance systems
+- AXI-LITE → MMIO and register interfaces
+- AHB-FULL → Deterministic burst-capable systems
+- AHB-LITE → Lightweight embedded systems with internal burst sequencing
+- TileLink → Native RISC-V interconnects
+
+All supported protocols share:
+
+- The same parser interface
+- The same arbiter infrastructure
+- The same response architecture
+- The same logging and error-reporting model
+
+This allows the command parser to remain protocol-independent while supporting multiple bus standards through dedicated backend implementations.
+
+---
+
+# End of Document

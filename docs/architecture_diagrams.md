@@ -1,229 +1,385 @@
 # DexterLab Architecture Diagrams
 
-This document contains architectural diagrams and flow representations of the
-DexterLab Command Parser system.  
-It complements the functional documentation by illustrating how commands are
-processed, split, arbitrated, and executed across different backends.
+This document collects the primary architecture and execution-flow diagrams used throughout the DexterLab documentation.
+
+The diagrams reflect the DexterLab v1.1.0 architecture and are intended to complement the detailed functional specifications.
 
 ---
 
-# 1. Parser Engine Pipeline
+# 1. Global Architecture
+
+The entire framework is organized around a protocol-independent command model.
+
+```mermaid
+flowchart TD
+
+    A[Parser Engine]
+        --> C[Arbiter]
+
+    B[Hardware Master]
+        --> C
+
+    C --> D[Backend]
+
+    D --> E[Bus]
+
+    E --> D
+
+    D --> C
+
+    C --> A
+
+    C --> B
+```
+
+---
+
+# 2. Command Execution Flow
+
+```mermaid
+flowchart TD
+
+    A[Command Source]
+        --> B[t_cmd_out]
+
+    B --> C[Arbiter]
+
+    C --> D[Backend]
+
+    D --> E[Target Bus]
+
+    E --> F[Peripheral]
+
+    F --> E
+
+    E --> D
+
+    D --> G[t_rsp_in]
+
+    G --> C
+
+    C --> A
+```
+
+---
+
+# 3. Parser Internal Pipeline
+
+```mermaid
+flowchart TD
+
+    A[Command File]
+        --> B[Tokenizer]
+
+    B --> C[Command Decoder]
+
+    C --> D[Syntax Validation]
+
+    D --> E[Semantic Validation]
+
+    E --> F[Micro-Command Generator]
+
+    F --> G[Command Builder]
+
+    G --> H[t_cmd_out]
+```
+
+---
+
+# 4. Multi-Source Arbitration
 
 ```mermaid
 flowchart LR
-    A[Text Command] --> B[Parser Engine]
-    B --> C[t_cmd_out]
-    C --> D[Arbiter]
-    D --> E[Backend]
-    E --> F[t_rsp_in]
-2. Generic Command Interface (t_cmd_out / t_rsp_in)
-mermaid
-flowchart TD
-    A[t_cmd_out] --> B[Backend]
-    B --> C[t_rsp_in]
-3. Arbiter + Master (future RISC‑V)
-mermaid
-flowchart LR
-    P[Parser Engine] --> A[Arbiter]
-    R[RISC-V Master] --> A
-    A --> S[Backend]
-4. Backend Selection (Direct)
-DexterLab no longer uses wrappers.
-The arbiter connects directly to the selected backend.
 
-mermaid
-flowchart TD
-    A[t_cmd_out] --> B{Backend Type}
-    B --> C[AXI-Full Backend]
-    B --> D[AHB-Full Backend]
-    B --> E[Generic Backend]
-5. AXI ↔ AHB Bridge
-mermaid
-flowchart LR
-    A[AXI-Full] --> B[AXI → AHB Bridge]
-    B --> C[AHB-Full]
-6. TileLink ↔ AXI / AHB Bridges
-mermaid
-flowchart LR
-    TL[TileLink] --> AXI[TileLink → AXI Bridge]
-    TL --> AHB[TileLink → AHB Bridge]
-7. Command Splitting Logic (Burst 1024 → Burst 256)
-Large bursts (e.g., 1024 beats) are split into smaller AXI-compliant bursts
-(max 256 beats) while respecting the 4KB boundary rule.
+    P[Parser Engine]
+        --> A[Arbiter]
 
-mermaid
+    M[Hardware Master]
+        --> A
+
+    A --> B[Backend]
+```
+
+The arbiter manages:
+
+- Ownership
+- Pending commands
+- Response routing
+- Locked command sequences
+
+---
+
+# 5. Backend Selection
+
+```mermaid
 flowchart TD
-    A[Command: BURST_WRITE len=1024] --> B[Parser Splitter]
-    B --> C1[Burst 0: 256 beats]
-    B --> C2[Burst 1: 256 beats]
-    B --> C3[Burst 2: 256 beats]
-    B --> C4[Burst 3: 256 beats]
-8. 4KB Boundary Crossing Logic
-mermaid
+
+    A[t_cmd_out]
+        --> B{Backend}
+
+    B --> C[Generic]
+
+    B --> D[AXI-FULL]
+
+    B --> E[AXI-LITE]
+
+    B --> F[AHB-FULL]
+
+    B --> G[AHB-LITE]
+```
+
+---
+
+# 6. Common Execution Model
+
+```mermaid
+flowchart TD
+
+    A[Command Accepted]
+        --> B[Execution]
+
+    B --> C[Response Publication]
+
+    C --> D[rsp_end_cmd = 1]
+
+    D --> E[Command Completed]
+```
+
+---
+
+# 7. Generic Backend Structure
+
+```mermaid
 flowchart LR
-    A[Start Address] --> B[addr + 0]
-    B --> C[addr + 4]
-    C --> D[addr + 8]
-    D --> E{Crosses 4KB?}
-    E -->|Yes| F[Split Burst]
-    E -->|No| G[Continue]
-9. WRAP Mask Calculation
-mermaid
+
+    A[t_cmd_out]
+        --> B[Generic Backend]
+
+    B --> C[REG Model]
+
+    B --> D[RAM Model]
+
+    B --> E[FIFO Model]
+
+    C --> B
+
+    D --> B
+
+    E --> B
+
+    B --> F[t_rsp_in]
+```
+
+---
+
+# 8. Burst Expansion
+
+Large logical commands may be expanded into multiple micro-commands.
+
+```mermaid
 flowchart TD
-    A[Base Address] --> B[Compute Wrap Boundary]
-    B --> C[Apply Wrap Mask]
-    C --> D[Generate Wrapped Addresses]
-10. FIFO Push/Pop Flow
-mermaid
+
+    A[BURST_WRITE len=1024]
+        --> B[Micro-Command Generator]
+
+    B --> C1[MC 0]
+
+    B --> C2[MC 1]
+
+    B --> C3[MC 2]
+
+    B --> C4[MC 3]
+```
+
+---
+
+# 9. Boundary Validation
+
+```mermaid
 flowchart TD
-    A[FIFO_WRITE] --> B[Push Data]
-    B --> C[FIFO Memory]
-    C --> D[Pop Data]
-    D --> E[FIFO_READ]
-11. Polling Logic (POLL_READ / POLL_TOGGLE / POLL_PING)
-mermaid
+
+    A[Command]
+        --> B[Boundary Validation]
+
+    B --> C{Valid?}
+
+    C -->|Yes| D[Execute]
+
+    C -->|No| E[Error]
+```
+
+---
+
+# 10. Wrap Command Processing
+
+```mermaid
 flowchart TD
-    A[Start Poll] --> B[Read Address]
+
+    A[WRAP Command]
+        --> B[Parser Validation]
+
+    B --> C[Backend Execution]
+
+    C --> D[Wrap Address Generation]
+```
+
+The parser validates wrap legality.
+
+The backend implements wrap addressing.
+
+---
+
+# 11. FIFO Operations
+
+```mermaid
+flowchart TD
+
+    A[FIFO_WRITE]
+        --> B[FIFO Model]
+
+    B --> C[FIFO_READ]
+
+    C --> D[FIFO_CHECK]
+```
+
+---
+
+# 12. Polling Operations
+
+```mermaid
+flowchart TD
+
+    A[Start Poll]
+        --> B[Read Value]
+
     B --> C{Condition Met?}
-    C -->|Yes| D[Return Success]
-    C -->|No| E[Wait Delay]
-    E --> F{Attempts Left?}
+
+    C -->|Yes| D[Success]
+
+    C -->|No| E[Delay]
+
+    E --> F{Attempts Remaining?}
+
     F -->|Yes| B
-    F -->|No| G[Return Timeout]
-12. Dump File Flow (DUMP_FILE_LEN / RANGE / CHECK)
-mermaid
-flowchart TD
-    A[DUMP_FILE_LEN] --> B[Read Memory]
-    B --> C[Format Hex Lines]
-    C --> D[Write File]
-    D --> E[Optional: Compare File for CHECK]
-13. Atomic Mode Flow (SET_ATOMIC)
-mermaid
+
+    F -->|No| G[Timeout]
+```
+
+Supported commands:
+
+```text
+POLL_READ
+POLL_TOGGLE
+```
+
+---
+
+# 13. Atomic Command Flow
+
+```mermaid
 flowchart LR
-    A[SET_ATOMIC 1] --> B[Enter Atomic Mode]
-    B --> C[Execute Commands Sequentially]
-    C --> D[No Interleaving Allowed]
+
+    A[SET_ATOMIC 1]
+        --> B[cmd_lock = 1]
+
+    B --> C[Arbiter Ownership Retained]
+
+    C --> D[Protected Commands]
+
     D --> E[SET_ATOMIC 0]
-    E --> F[Exit Atomic Mode]
-14. Error Code Flow (OKAY / SLVERR / DECERR / BOUNDARY_ERR / BURST_ERR)
-mermaid
+
+    E --> F[Ownership Released]
+```
+
+---
+
+# 14. Error Propagation
+
+```mermaid
 flowchart TD
-    A[Backend Execution] --> B{Error?}
-    B -->|No| C[OKAY]
-    B -->|Yes| D[Generate Error Code]
-    D --> E[rsp_err_valid]
-15. Parser Engine FSM
-mermaid
-stateDiagram-v2
-    [*] --> Idle
-    Idle --> ParseCommand: New text line
-    ParseCommand --> Decode: Identify command
-    Decode --> BuildCmdOut: Fill t_cmd_out fields
-    BuildCmdOut --> SendCmd: cmd_valid = 1
-    SendCmd --> WaitRsp: rsp_valid?
-    WaitRsp --> Idle: rsp_last
-16. Backend FSM (Generic / AXI / AHB)
-mermaid
-stateDiagram-v2
-    [*] --> Idle
-    Idle --> AcceptCmd: cmd_valid & cmd_ready
-    AcceptCmd --> Exec: Execute operation
-    Exec --> SendRsp: rsp_valid = 1
-    SendRsp --> Idle: rsp_last = 1
-17. AXI-Full Handshake Flow
-mermaid
-sequenceDiagram
-    participant M as Master
-    participant S as Slave
 
-    M->>S: AWVALID + AWADDR
-    S->>M: AWREADY
+    A[Backend Execution]
+        --> B{Error?}
 
-    M->>S: WVALID + WDATA + WSTRB
-    S->>M: WREADY
+    B -->|No| C[Normal Response]
 
-    S->>M: BVALID + BRESP
-    M->>S: BREADY
+    B -->|Yes| D[rsp_err_valid]
 
-    M->>S: ARVALID + ARADDR
-    S->>M: ARREADY
+    D --> E[rsp_err_code]
 
-    S->>M: RVALID + RDATA + RRESP
-    M->>S: RREADY
-18. AHB-Full Transfer Flow
-mermaid
-sequenceDiagram
-    participant M as Master
-    participant S as Slave
+    E --> F[rsp_err_addr]
 
-    M->>S: HADDR + HTRANS + HSIZE + HBURST
-    M->>S: HWRITE
-    S->>M: HREADY
+    F --> G[rsp_err_beat]
 
-    M->>S: HWDATA
-    S->>M: HRDATA
-19. Command Splitting: Detailed Address Flow
-mermaid
-flowchart TD
-    A[Start: addr = BASE_RAM + 0x0000] --> B{Cross 4KB?}
-    B -->|No| C[Split into 256-beat bursts]
-    C --> D1[addr + 0x0000 → burst 0]
-    C --> D2[addr + 0x0400 → burst 1]
-    C --> D3[addr + 0x0800 → burst 2]
-    C --> D4[addr + 0x0C00 → burst 3]
-20. Boundary Crossing Example
-mermaid
+    G --> H[rsp_err_id]
+```
+
+---
+
+# 15. TileLink Integration
+
+```mermaid
 flowchart LR
-    A[addr = BASE_RAM + 0x14] --> B[addr + 0x18]
-    B --> C[addr + 0x1C]
-    C --> D[addr + 0x20]
-    D --> E{Cross 4KB?}
-    E -->|Yes| F[Split Burst]
-    E -->|No| G[Continue]
-21. Wrap Mask Logic
-mermaid
-flowchart TD
-    A[len = 8] --> B[Compute mask = len * 4 bytes]
-    B --> C[Wrap boundary = base & ~(mask - 1)]
-    C --> D[addr = base + (offset % mask)]
-22. Fill Range Splitting (FILL_RANGE)
-mermaid
-flowchart TD
-    A[FILL_RANGE start → end] --> B[Compute total length]
-    B --> C{len > 256?}
-    C -->|Yes| D[Split into 256-beat bursts]
-    C -->|No| E[Single burst]
-23. Dump Range Splitting (DUMP_RANGE)
-mermaid
-flowchart TD
-    A[DUMP_RANGE start → end] --> B[Compute length]
-    B --> C{len > 256?}
-    C -->|Yes| D[Split into multiple reads]
-    C -->|No| E[Single read]
-24. WSTRB Lane Selection
-mermaid
-flowchart LR
-    A[WSTRB_WRITE addr, wstrb] --> B{wstrb bit 0?}
-    B -->|Yes| C[Write byte lane 0]
-    B -->|No| D[Skip lane 0]
 
-    A --> E{wstrb bit 1?}
-    E -->|Yes| F[Write byte lane 1]
-    E -->|No| G[Skip lane 1]
+    A[TileLink Master]
+        --> B[TileLink Bridge]
 
-    A --> H{wstrb bit 2?}
-    H -->|Yes| I[Write byte lane 2]
-    H -->|No| J[Skip lane 2]
+    B --> C[t_cmd_out]
 
-    A --> K{wstrb bit 3?}
-    K -->|Yes| L[Write byte lane 3]
-    K -->|No| M[Skip lane 3]
-25. Error Propagation Flow
-mermaid
+    C --> D[Arbiter]
+
+    D --> E[Backend]
+
+    E --> F[t_rsp_in]
+
+    F --> B
+```
+
+---
+
+# 16. Verification Environment
+
+```mermaid
 flowchart TD
-    A[Backend Execution] --> B{Error?}
-    B -->|No| C[OKAY]
-    B -->|Yes| D[Generate Error Code]
-    D --> E[rsp_err_valid = 1]
-    E --> F[Return to Parser]
-End of Document
+
+    A[Command Files]
+        --> B[Parser]
+
+    C[Hardware Master]
+        --> D[Arbiter]
+
+    B --> D
+
+    D --> E[Backend]
+
+    E --> F[REG]
+
+    E --> G[RAM]
+
+    E --> H[FIFO]
+```
+
+---
+
+# 17. Documentation Relationships
+
+```mermaid
+flowchart TD
+
+    A[overview.md]
+        --> B[cmd_interface.md]
+
+    B --> C[cmd_flow.md]
+
+    C --> D[command_set.md]
+
+    D --> E[Backend Documentation]
+
+    B --> F[Arbiter Documentation]
+
+    C --> G[Testbench Documentation]
+```
+
+---
+
+# End of Document

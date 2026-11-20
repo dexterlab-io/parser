@@ -1,87 +1,217 @@
-README — Vivado Simulation Environment
-(Directory: parser/sim/vivado/core/)
+# Vivado Simulation Environment
 
-Overview
-This directory contains the Vivado simulation environment for the module:
+## Overview
 
-cmd_parser_slave_generic
+This directory contains the Vivado simulation environment for the DexterLab Command Parser.
 
-It provides a standalone testbench for validating the parser together with the generic slave model, using XSIM (Vivado Simulator).
+It provides a standalone testbench environment for validating the parser together with the reference slave models and supported bus converters using XSIM (Vivado Simulator).
 
-This README focuses only on how to run the simulation.
-For architectural details, command specifications, and slave behavior, refer to the main project documentation.
+This README focuses only on how to run simulations.
 
-Requirements
-Windows 10/11
+For parser architecture, command format, response format, and bus-converter behavior, please refer to the main project documentation.
 
-Vivado 2025.1 installed
+---
 
-settings64.bat available in the Vivado installation directory
+## Requirements
 
-MSYS2 / MINGW64 (optional, for Make)
+- Windows 10 / Windows 11
+- Vivado 2025.1
+- Vivado `settings64.bat`
+- MSYS2 / MINGW64 (optional, for Makefile support)
 
-Environment Setup
+---
+
+## Environment Setup
+
 Before running any simulation, activate the Vivado environment:
 
-Codice
+```bat
 vivado_env.bat
-This script loads settings64.bat and prepares the Vivado toolchain.
+```
 
-Running the Simulation
-To compile, elaborate, and run the simulation in batch mode:
+This script loads `settings64.bat` and prepares the Vivado toolchain.
 
-Codice
+---
+
+## Running the Simulation
+
+### Compile, Elaborate and Run
+
+```sh
 make xsim
-This will generate:
+```
 
-xsim.dir/
+This generates:
 
-tb_parser_sim.wdb
+- `xsim.dir/`
+- `tb_parser_sim.wdb`
+- `xsim.log`
+- `xelab.log`
+- Additional simulation artifacts
 
-log files (xsim.log, xelab.log)
+---
 
-Opening the GUI
-To open the waveform viewer:
+## Opening the GUI
 
-Codice
+Open the XSIM waveform viewer:
+
+```sh
 make xsim_gui
-or:
+```
 
-Codice
+or manually:
+
+```sh
 xsim tb_parser_sim --gui
-The GUI requires the previously generated xsim.dir and .wdb files.
+```
 
-Debug Logging
-Debug messages (severity note) can be enabled through:
+The GUI requires a previously generated simulation database (`.wdb`) and elaboration output.
 
-vhdl
+---
+
+## Debug Logging
+
+Debug messages (`severity note`) are controlled by:
+
+```vhdl
 constant ENABLE_DEBUG_LOG : boolean := true;
+```
+
 Defined in:
 
-Codice
+```text
 cmd_cfg.vhd
-Warnings, errors, and fatal messages are always active.
+```
 
-Vivado/XSIM does not support severity filtering, so debug control is implemented directly in VHDL.
+### Debug OFF
 
-Cleaning the Directory
-To remove generated files:
+```vhdl
+ENABLE_DEBUG_LOG := false;
+```
 
-Codice
+- Suppresses debug messages
+- Keeps warning, error and fatal messages enabled
+
+### Debug ON
+
+```vhdl
+ENABLE_DEBUG_LOG := true;
+```
+
+- Enables parser debug output
+- Useful during command flow analysis and protocol debugging
+
+Vivado/XSIM does not support runtime severity filtering comparable to GHDL, therefore debug control is implemented directly inside the VHDL sources.
+
+---
+
+## Cleaning the Directory
+
+To remove generated simulation files:
+
+```sh
 make clean
-Additional Documentation
+```
+
+This removes:
+
+- `xsim.dir/`
+- `.pb` files
+- `.jou` files
+- `.log` files
+- `.wdb` files
+- Other temporary simulation artifacts
+
+---
+
+## Supported Verification Targets
+
+The simulation environment is used to validate:
+
+- Core parser functionality
+- Command decoding
+- Response generation
+- WAIT / POLL / PING / DUMP mechanisms
+- SINGLE command execution
+- BURST command execution
+- FIFO command execution
+- WRAP address handling
+- Timeout detection
+- Error handling and reporting
+- AXI-Full bus converter
+- AXI-Lite bus converter
+- AHB-Full bus converter
+- AHB-Lite bus converter
+
+---
+
+## Simulation Inputs
+
+The regression environment uses:
+
+| File | Description |
+|--------|-------------|
+| cmd.txt | Command sequence used by the parser regression |
+| ram_init.cde | Initial contents of the reference RAM model |
+
+The command file may contain:
+
+- SINGLE accesses
+- BURST accesses
+- FIFO operations
+- WRAP operations
+- WAIT commands
+- POLL commands
+- DUMP commands
+- Error-injection tests
+
+---
+
+## Generated Outputs
+
+The Vivado simulation environment produces:
+
+- Simulation transcript logs
+- XSIM waveform database (`.wdb`)
+- Execution statistics
+- Command execution summary
+- Regression pass/fail report
+
+A successful regression typically ends with:
+
+```text
+TOTAL EXEC ERRORS = 0
+TOTAL ERRORS = 0
+SIMULATION RESULT: OK
+```
+
+---
+
+## Additional Documentation
+
 For complete information about:
 
-parser architecture
+- Parser architecture
+- Command format (`cmd.txt`)
+- Response format
+- Bus converter architecture
+- AXI-Full integration
+- AXI-Lite integration
+- AHB-Full integration
+- AHB-Lite integration
+- Reference RAM model
+- Reference FIFO model
+- Error handling
+- Integration guidelines
 
-command format (cmd.txt)
+please refer to the documentation available in the root project directory.
 
-generic slave behavior
+---
 
-RAM model
+## Version
 
-byte‑enable handling
+Current release tested by this environment:
 
-integration guidelines
-
-please refer to the main project documentation located in the root of the repository.
+```text
+v1.1.0
+```

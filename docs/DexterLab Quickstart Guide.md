@@ -1,288 +1,421 @@
-DexterLab Quickstart Guide
-(Versione 2026 — Installazione, Esecuzione, Primo Test, Debug)
+# DexterLab Quickstart Guide
 
-This guide provides a fast, practical introduction to DexterLab.
-It is designed for new users who want to:
+(Version 2026 — Installation, First Simulation, First Command File)
 
-install DexterLab
+This guide provides a practical introduction to the DexterLab command ecosystem.
 
-run their first .cmd file
+It is intended for users who want to:
 
-simulate commands
+- Understand the architecture
+- Run their first simulation
+- Execute a command file
+- Validate parser behavior
+- Inspect waveforms
+- Experiment with different backends
 
-inspect waveforms
+This is the recommended starting point for new users.
 
-understand the basic pipeline
+---
 
-This is the recommended entry point for anyone approaching DexterLab for the first time.
+# 1. DexterLab Architecture
 
-1. Requirements
-DexterLab is pure VHDL and works on any IEEE‑compliant simulator:
+DexterLab is built around a protocol-independent command model.
 
-✔ Supported simulators
-GHDL (recommended, fast, open‑source)
+```text
+Parser / Master
+        |
+        v
+     Arbiter
+        |
+        v
+     Backend
+        |
+        v
+       Bus
+```
 
-Vivado xsim
+All command execution uses:
 
-QuestaSim / ModelSim
+```text
+t_cmd_out
+t_rsp_out
+t_rsp_in
+```
 
-Cadence Xcelium
+regardless of the selected backend.
 
-Synopsys VCS
+---
 
-Aldec Riviera‑PRO
+# 2. Requirements
 
-✔ Required files
-cmd_parser.vhd
+DexterLab is implemented in standard VHDL and supports multiple simulators.
 
-arbiter_mux.vhd
+Supported environments:
 
-backend_generic.vhd (or AXI/AHB backends)
+- GHDL
+- Vivado / XSIM
+- QuestaSim
+- ModelSim
+- Riviera-PRO
+- Xcelium
+- VCS
 
-cmd_master.vhd
+Recommended for beginners:
 
-reg_model.vhd
+```text
+GHDL
+```
 
-ram_model.vhd
+because it provides the fastest edit-compile-run cycle.
 
-fifo_model.vhd
+---
 
-tb_dexterlab.vhd (testbench)
+# 3. Typical Project Structure
 
-2. Directory Structure
-A typical DexterLab project looks like:
-
-Codice
+```text
 dexterlab/
-│
+
 ├── src/
-│   ├── parser/
-│   ├── arbiter/
-│   ├── backend/
-│   ├── models/
-│   └── master/
 │
 ├── docs/
-│   ├── cmd_file_format.md
-│   ├── cmd_interface.md
-│   ├── cmd_flow.md
-│   ├── backend_axi_full.md
-│   ├── backend_ahb_full.md
-│   ├── tilelink_bridge.md
-│   └── ...
 │
 ├── test/
-│   ├── init.cmd
-│   ├── burst_test.cmd
-│   ├── fifo_test.cmd
-│   └── wrap_test.cmd
+│
+├── sim/
+│   ├── ghdl/
+│   └── vivado/
 │
 └── tb/
-    └── tb_dexterlab.vhd
-3. Building DexterLab (GHDL)
-Compile all sources:
-bash
+```
+
+Main directories:
+
+| Directory | Purpose |
+|------------|------------|
+| src | HDL source files |
+| docs | Documentation |
+| test | Command files |
+| sim | Simulator scripts |
+| tb | Testbench environment |
+
+---
+
+# 4. Build and Run (GHDL)
+
+Compile sources:
+
+```bash
 ghdl -a src/**/*.vhd
-ghdl -a tb/tb_dexterlab.vhd
-Elaborate:
-bash
-ghdl -e tb_dexterlab
-Run:
-bash
-ghdl -r tb_dexterlab --wave=wave.fst
-You now have:
 
-full simulation
+***l -a tb/tb_dexter***.vhd
+```
 
-waveform dump
-
-command execution
-
-backend activity
-
-arbiter switching
-
-memory model interactions
-
-4. Running Your First .cmd File
-Create a file:
-
-Codice
-WRITE 0x0000 0xDEADBEEF
-READ  0x0000
-CHECK 0x0000 0xDEADBEEF
-Place it in test/first_test.cmd.
-
-Run the testbench:
-
-bash
-ghdl -r tb_dexterlab --cmd=test/first_test.cmd --wave=wave.fst
-Expected output:
-
-Codice
-[CMD] WRITE 0x0000 = 0xDEADBEEF
-[CMD] READ  0x0000 → 0xDEADBEEF
-[CMD] CHECK OK
-5. Using DRY_RUN Mode
-DRY_RUN validates commands without executing them.
+Elaborate***```bash
+ghdl -e tb_d***erlab
+```
 
 Run:
 
-bash
-ghdl -r tb_dexterlab --cmd=test/first_test.cmd --dry-run
-Output:
+***bash
+ghdl -r tb_dex***lab --wave=wave.fst
+``***This produces:
 
-Codice
-[DRY_RUN] WRITE 0x0000 0xDEADBEEF
-[DRY_RUN] READ 0x0000
-[DRY_RUN] CHECK 0x0000 0xDEADBEEF
-Useful for:
+- Command***ecution
+- Backend activity
+- Res***se generation***Waveform database
 
-syntax validation
+---
 
-semantic validation
+# 5***reate Your First Command File
 
-CI pipelines
+***ate:
 
-debugging command files
+```text
+test/first_test.cm****`
 
-6. Inspecting Waveforms
-Open wave.fst in GTKWave:
+Contents:
 
-bash
-gtkwave wave.fst
+```text
+WRITE***1000 0xDE***EEF
+
+READ 0x1000
+
+CHECK 0x1000 0******EEF
+```
+
+---
+
+# 6.***n a Command File
+
+Example:
+
+```b***
+***l -r tb_dexterlab \
+***  --cmd=test/first***st.cmd \
+     --wave=wave.fst***`
+
+Typical output***```text
+WRITE executed
+
+***D completed
+
+CHECK passed***`
+
+Exact formatting***pends on the selected testbench.*****
+
+# 7. Using DRY_RUN
+
+DRY_RUN va***ates command files without execu***g***ckend operations.
+
+Example:
+
+```***h
+ghdl -r tb_dexter*** \
+     --cmd=test/first_test.cm****     --dry-run
+```
+
+Capabilities***- Parsing
+- Syntax validation
+- ***antic validation
+- Command norma***ation
+
+Without:
+
+***rbiter activity
+- Backend activi*****Bus transactions
+
+Recommended***fore running***mplex command sequences.
+
+---
+
+#*** Inspect*** Waveforms
+
+Open generated wave***ms:
+
+```bash
+gtkwave wave.f***```
+
 Recommended signals:
 
-Parser
-parser_cmd_valid
+###***rser
 
-parser_cmd_addr
+```text
+cmd***lid
+cmd_ready
+cmd_out
+``***### Arbiter
 
-parser_cmd_data
-
-Arbiter
-state
-
+```text
+state_curre*****ate_next
 parser_ready
+master_rea***```
 
-master_ready
+### Backend
 
-cmd_valid
-
-Backend
-rsp_valid
-
+```text
+rsp_va******p_last
 rsp_data
 
+***_err_valid
 rsp_err_code
 
-Memory Models
-reg_array
+***_end_cmd
+```
 
-ram_array
+### Memory Models
+****text
+REG
+RAM
+FIFO
+***
 
-fifo_write_ptr
+Waveforms are the preferred de***ging mechanism***r protocol***d timing***sues.
 
-fifo_read_ptr
+---
 
-Waveforms are essential for debugging burst, wrap, FIFO, and error conditions.
+# 9***un Example Tests
 
-7. Running Built‑In Tests
-DexterLab includes several example tests:
+Typical***mmand files:
 
-Burst test
-Codice
-BURST_WRITE 0x1000 16 0xAAAA...
-BURST_READ  0x1000 16
-Wrap test
-Codice
-WRAP_WRITE 0x1080 8 0xBBBB...
-WRAP_READ  0x1080 8
-FIFO test
-Codice
-FIFO_WRITE 0x3000 4 0x01 0x02 0x03 0x04
-FIFO_READ  0x3100 4
-Run:
+***text
+memory_test.cmd
+burst_test.***
+fifo_test.cmd***ap_test.cmd***ror_test.cmd
+```
 
-bash
-ghdl -r tb_dexterlab --cmd=test/burst_test.cmd
-8. Switching Backends
-To simulate AXI‑FULL:
+Example:
 
-vhdl
-u_backend : entity work.backend_axi_full
-To simulate AHB‑FULL:
+***bash
+ghdl -r tb_dexter*** \
+     --cmd=test/burst_test***d
+```
 
-vhdl
-u_backend : entity work.backend_ahb_full
-To simulate Generic:
+---
 
-vhdl
-u_backend : entity work.backend_generic
-Backends are interchangeable — the parser and arbiter do not change.
+# 10. Example***mmand Families
 
-9. Using the Hardware Master
-Enable the master placeholder:
+Single access:
 
-vhdl
-master_start <= '1';
-This generates continuous READs at 0x0000_0000.
+***text
+***TE 0x1000 0x123***78
 
-Useful for:
+READ 0x1000
+***
 
-arbiter testing
+Burst operation:
 
-multi‑source arbitration
+```text
+BURS****ITE 16 0x1000
+``***Wrap operation:
 
-atomic mode validation
+```text
+WRAP_RE*****0x2000
+```
 
-Future versions will support:
+***O operation:
 
-RISC‑V master
+```text
+FIFO_WRITE*****00 4
+```
 
-DMA master
+Polling:
 
-custom FPGA logic
+***text
+POLL_READ 0x100***x1 0x1 *** 10
+``***Atomic sequence***```text
+SET_ATOMIC 1
 
-10. Debugging Common Issues
-❌ DECERR
-Address outside REG/RAM/FIFO.
+***TE 0x1000 0xAAAA***5
 
-❌ SLVERR
-Backend error (FIFO underflow, overflow, protocol violation).
+WRITE 0***04 0x12345678
 
-❌ BOUNDARY_ERR
-Burst crosses 4KB boundary.
+***_ATOMIC 0
+```
 
-❌ BURST_ERR
-Invalid wrap mask or burst semantics.
+---
 
-❌ CHECK mismatch
-Expected value does not match read value.
+#***. Switching Backends
 
-❌ POLL timeout
-Condition not met within attempts.
+The comman****osystem is***ckend-independent.
 
-11. Quickstart Summary
-DexterLab Quickstart:
+Generic Back******```vhdl
+u_backend :***tity work.backend_generic
+```
 
-Compile sources
+A***FULL Backend:
 
-Run testbench
+```vhdl
+***ackend : entity work.backend_axi***ll
+``***AXI-LITE Backend:
 
-Execute .cmd file
+***vhdl
+u_backend : entity work.bac***d***i***te
+```
 
-Inspect waveforms
+AHB-FULL Backend:
 
-Use DRY_RUN for validation
+```vh***u_backend : entity work.backend_***_full
+```
 
-Switch backends as needed
+AH***ITE Backend:
 
-Debug using error codes
+```vhdl
+u***ckend : entity work.backend_ahb_***e***`
 
-Extend with custom tests
+The parser and arbiter remain***changed.
 
-DexterLab provides a complete, unified command ecosystem for simulation,
-verification, and hardware integration.
+---
 
-End of Document
+# 12. Hardware***ster
+
+The current hardware maste***s a placeholder implementation.
+***havior:
+
+```text
+***tinuous***AD
+
+Address = 0x00000000
+
+Length*****```
+
+Use***ses:
+
+- Arbiter validation***Multi-source testing
+- Response ***ting verification***uture versions may support:
+
+- R***-V processors
+- DMA engines
+***PGA accelerators
+- Embedded cont***lers
+
+---
+
+***3. Common Issues***## Address Errors***sually indicate***```text
+Access outside valid add***s***p
+```
+
+###***undary Errors
+
+Usually indicate:***``text
+Invalid burst boundaries***`
+
+### Verification Fail***s
+
+Usually indicate:
+
+```text
+CH*** mismatch***FO_CHECK mismatch
+File***mparison mismatch
+```
+
+### Polli***Fail***s
+
+Usually indicate:
+
+```text
+Ti***ut condition reached
+```
+
+See***```text
+cmd_errors.md
+```
+
+*** complete error definitions.
+
+--***#***. Where to Go***xt
+
+Recommended reading:
+
+***`overview.md`
+2. `cmd***le_format.md`
+3. `command_set.md***. `cmd_interface.md`
+5.***md_flow.md`
+6. `cmd***rors.md`
+
+Then continue***th:
+
+- Backend documentation
+-***biter documentation
+- Testbench ***hitecture
+-***ster integration guide***--
+
+# 15. Summary***o get***arted with DexterLab:
+
+1. Compil***he sources*** Run the testbench
+3.***ecute a command file
+4. Inspect***veforms
+5. Use DRY_RUN for***lidation
+6. Experiment with diff***nt***ckends
+
+The same***mmand ecosystem works across all***pported***ckends through the unified inter***es:
+
+```text
+t_cmd_out
+t_rsp_out***rsp_in
+```
+
+making DexterLab a f***ible framework for verification,***mulation, and future hardware in***ration.
+
+---
+
+# End of Document***``***

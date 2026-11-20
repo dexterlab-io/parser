@@ -1,250 +1,389 @@
-DexterLab Backend Overview
-The DexterLab backend layer is responsible for converting high‑level parser
-commands (t_cmd_out) into real bus transactions.
-Each backend implements a specific bus protocol (AXI, AHB, TileLink, Generic)
-while preserving the unified DexterLab command interface.
+# DexterLab Backend Overview
 
-Backends are the final stage of the command pipeline:
+The DexterLab backend layer is responsible for converting high-level parser commands (`t_cmd_out`) into protocol-specific bus transactions and translating bus responses back into parser responses (`t_rsp_in`).
 
-Codice
-cmd_parser → arbiter → backend → bus
-This document provides an overview of all backend types, their roles, and how
-they integrate into DexterLab systems.
+Each backend implements a specific bus protocol while preserving the unified DexterLab command interface.
 
-1. Backend Responsibilities
+Supported backend families include:
+
+- Generic
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
+- TileLink
+
+Backends are the final stage of the command execution pipeline:
+
+```text
+Parser
+   |
+Arbiter
+   |
+Backend
+   |
+Bus
+```
+
+This document provides an overview of all backend types, their responsibilities, and their integration within the DexterLab architecture.
+
+---
+
+# 1. Backend Responsibilities
+
 Every backend must:
 
-accept commands via t_cmd_out
+- Accept commands via `t_cmd_out`
+- Execute those commands according to the target bus protocol
+- Generate responses via `t_rsp_in`
+- Implement the subset of parser features supported by the target protocol
+- Enforce protocol-specific rules
+- Detect timeout conditions
+- Propagate protocol and execution errors
+- Integrate seamlessly with the arbiter
+- Preserve command ordering
 
-execute them according to its bus protocol
+Backends are protocol-specific but parser-independent.
 
-generate responses via t_rsp_in
+The parser remains completely unaware of the selected bus protocol.
 
-support bursts, wrap, FIFO, atomic mode
+---
 
-enforce protocol‑specific rules (WSTRB, boundary checks, wait‑states)
+# 2. Common Backend Architecture
 
-propagate errors (OKAY, SLVERR, DECERR, BOUNDARY_ERR, BURST_ERR)
+All current backends implement the same execution model.
 
-integrate seamlessly with the arbiter
+```text
+Phase 1
+--------
+Command execution
 
-Backends are protocol‑specific, but command‑agnostic.
+Phase 2
+--------
+Response publication
 
-2. Backend Types
-DexterLab supports multiple backend families:
+Phase 3
+--------
+Parser ready
+```
 
-✔ 2.1 Generic Backend (backend_generic)
-A lightweight backend used for simulation and prototyping.
+This architecture guarantees:
 
-Features:
+- Deterministic command completion
+- Consistent error reporting
+- Uniform response generation
+- Backend-independent parser behavior
 
-pure VHDL
+The model is shared by:
 
-no AXI/AHB handshake
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
 
-AXI‑like semantics (INCR, WRAP, FIFO)
+---
 
-WSTRB support
+# 3. Backend Families
 
-4KB boundary checks
+DexterLab supports multiple backend implementations.
 
-simple RAM/FIFO/REG model
+---
 
-Use cases:
+## 3.1 Generic Backend (`backend_generic`)
 
-fast simulation
+A lightweight protocol-independent backend used primarily for simulation and parser validation.
 
-CI pipelines
+### Features
 
-parser development
+- Pure VHDL implementation
+- No external bus protocol
+- AXI-like command semantics
+- WSTRB support
+- FIFO support
+- BURST support
+- WRAP support
+- 4KB boundary validation
+- RAM, FIFO and register models
 
-backend prototyping
+### Typical Use Cases
 
-✔ 2.2 AXI‑FULL Backend (backend_axi_full)
-Implements the full AXI4 protocol:
+- Fast simulation
+- Continuous Integration (CI)
+- Parser development
+- Backend prototyping
+- Functional verification
 
-AW/W/B and AR/R channels
+---
 
-multi‑beat bursts
+## 3.2 AXI-FULL Backend (`backend_axi_full`)
 
-wrap bursts
+The most complete backend currently available.
 
-WSTRB support
+### Features
 
-AXI BRESP/RRESP error semantics
+- AXI4-compliant transaction model
+- Independent AW/W/B channels
+- Independent AR/R channels
+- Multi-beat bursts
+- WRAP bursts
+- WSTRB masking
+- Burst lengths up to 256 beats
+- Protocol validation
+- Timeout detection
+- Full error reporting
 
-multi‑ID support
+### Optional AXI Signals
 
-optional AXI signals (AWLOCK, AWREGION, AWQOS, ARLOCK, ARREGION, ARQOS)
+- AWLOCK
+- AWREGION
+- AWQOS
+- ARLOCK
+- ARREGION
+- ARQOS
 
-Use cases:
+### Typical Use Cases
 
-high‑performance SoCs
+- High-performance SoCs
+- FPGA IP integration
+- DMA engines
+- Memory subsystems
+- Vendor IP simulation
 
-FPGA IP integration
+---
 
-vendor IP simulation (Vivado/xsim)
+## 3.3 AXI-LITE Backend (`backend_axi_lite`)
 
-✔ 2.3 AXI‑LITE Backend (backend_axi_lite)
-Lightweight AXI backend:
+A lightweight AXI implementation optimized for register-oriented access.
 
-single‑beat transfers
+### Features
 
-WSTRB support
+- Single-beat transactions
+- WSTRB support
+- Timeout detection
+- Simplified response model
+- AXI-LITE compliance
 
-no bursts
+### Limitations
 
-no wrap
+- No bursts
+- No wrap transactions
+- No multi-beat operations
 
-no FIFO
+### Typical Use Cases
 
-Use cases:
+- MMIO registers
+- Configuration interfaces
+- Status registers
+- Low-bandwidth peripherals
 
-MMIO registers
+---
 
-control/status interfaces
+## 3.4 AHB-FULL Backend (`backend_ahb_full`)
 
-simple peripherals
+A complete AHB implementation supporting burst-oriented operation.
 
-✔ 2.4 AHB‑FULL Backend (backend_ahb_full)
-Implements full AHB semantics:
+### Features
 
-pipelined address/data phases
+- HBURST support
+- HTRANS sequencing
+- Multi-beat transfers
+- WRAP bursts
+- FIFO support
+- Timeout detection
+- Wait-state handling
+- Detailed error reporting
 
-HTRANS, HBURST, HSIZE
+### Characteristics
 
-multi‑beat bursts
+- Deterministic timing
+- Burst-aware slave support
+- Explicit burst-length signalling
 
-wrap bursts
+### Typical Use Cases
 
-deterministic timing
+- Embedded SoCs
+- Deterministic interconnects
+- Verification environments
+- MCU subsystems
 
-Use cases:
+---
 
-microcontroller subsystems
+## 3.5 AHB-LITE Backend (`backend_ahb_lite`)
 
-lightweight SoCs
+A simplified AHB implementation that preserves the complete parser transaction model.
 
-deterministic bus architectures
+### Features
 
-✔ 2.5 AHB‑LITE Backend (backend_ahb_lite)
-Simplified AHB backend:
+- Multi-beat transfers
+- Internal burst sequencing
+- Internal wrap-address generation
+- Wait-state support
+- Timeout detection
+- Error reporting
 
-single‑cycle transfers
+### Characteristics
 
-optional wait‑states
+- No HBURST signal
+- No RETRY responses
+- No SPLIT responses
+- Burst execution managed internally by the backend
 
-simplified burst support
+The backend generates:
 
-Use cases:
+```text
+NONSEQ
+SEQ
+SEQ
+SEQ
+...
+```
 
-simple peripherals
+sequences and computes burst addresses without relying on HBURST signalling.
 
-low‑complexity systems
+### Typical Use Cases
 
-✔ 2.6 TileLink Bridge (tilelink_bridge)
-Converts TileLink UL/UH transactions into t_cmd_out.
+- Lightweight embedded systems
+- MCU-class designs
+- Verification environments
+- Simple memory-mapped systems
 
-Supports:
+---
 
-TL Get → READ
+## 3.6 TileLink Bridge (`tilelink_bridge`)
 
-TL PutFull → WRITE
+The TileLink bridge converts TileLink transactions into the DexterLab parser command model.
 
-TL PutPartial → masked WRITE
+### Supported TileLink Operations
 
-TL Arithmetic/Logical → atomic
+- Get → READ
+- PutFullData → WRITE
+- PutPartialData → Masked WRITE
+- ArithmeticData → Atomic command
+- LogicalData → Atomic command
+- TileLink-UH bursts
 
-TL UH → burst/wrap
+### Typical Use Cases
 
-Use cases:
+- RISC-V SoCs
+- TileLink-based systems
+- Research platforms
+- Hybrid bus environments
 
-RISC‑V SoCs
+---
 
-TileLink‑based systems
+# 4. Backend Selection
 
-hybrid firmware/hardware command generation
+Backend selection is performed statically.
 
-3. Backend Selection
-Backend selection is static at synthesis time:
+Available implementations include:
 
-Codice
+```text
+backend_generic
 backend_axi_full
 backend_axi_lite
 backend_ahb_full
 backend_ahb_lite
-backend_generic
 tilelink_bridge
-The arbiter and parser do not need to know which backend is active.
+```
 
-All backends implement the same interface:
+The parser and arbiter remain unchanged regardless of the selected backend.
 
-Codice
-t_cmd_out → backend → t_rsp_in
-4. Backend Integration Diagram
-mermaid
+All supported backends implement:
+
+```text
+t_cmd_out
+    |
+Backend
+    |
+t_rsp_in
+```
+
+---
+
+# 5. Backend Integration
+
+```mermaid
 flowchart LR
-    A[t_cmd_out] --> B[Arbiter]
+
+    A[t_cmd_out]
+        --> B[Arbiter]
+
     B --> C[Backend Executor]
-    C --> D[Bus Protocol]
+
+    C --> D[Target Bus]
+
     D --> C
-    C --> B
-    B --> E[t_rsp_in]
-5. Adding a Custom Backend
-DexterLab allows users to implement custom backends:
+
+    C --> E[t_rsp_in]
+```
+
+The bus protocol changes, while the parser interface remains constant.
+
+---
+
+# 6. Adding a Custom Backend
+
+DexterLab allows users to implement custom backend implementations.
 
 Required steps:
-Implement t_cmd_out → protocol conversion
 
-Implement protocol → t_rsp_in conversion
+1. Implement `t_cmd_out` to protocol conversion
+2. Implement protocol response to `t_rsp_in` conversion
+3. Implement command execution sequencing
+4. Implement error handling
+5. Implement timeout handling
+6. Integrate with the arbiter
+7. Provide a verification testbench
 
-Support bursts, wrap, FIFO, atomic
+Possible custom backends include:
 
-Support error propagation
+- Wishbone
+- APB
+- Avalon
+- Proprietary buses
+- Streaming engines
+- Accelerator interfaces
 
-Integrate with arbiter
+---
 
-Provide a testbench
+# 7. Backend Comparison
 
-Typical custom backends:
-Wishbone
+| Backend | BURST | WRAP | FIFO | WSTRB | Multi-ID | Typical Use |
+|----------|--------|--------|--------|--------|-----------|--------------|
+| Generic | ✔ | ✔ | ✔ | ✔ | ✘ | Simulation |
+| AXI-FULL | ✔ | ✔ | ✔ | ✔ | ✔ | High-performance systems |
+| AXI-LITE | ✘ | ✘ | ✘ | ✔ | ✘ | MMIO |
+| AHB-FULL | ✔ | ✔ | ✔ | ✘ | ✘ | Deterministic systems |
+| AHB-LITE | ✔ | ✔ | ✔ | ✘ | ✘ | Embedded systems |
+| TileLink Bridge | ✔ | ✔ | ✘ | ✔ | ✔ | RISC-V systems |
 
-APB
+### Notes
 
-proprietary buses
+For AHB-LITE:
 
-streaming engines
+- Burst execution is supported.
+- Wrap execution is supported.
+- Burst metadata is not exposed on the bus.
+- Address generation is handled internally by the backend.
 
-accelerator interfaces
+---
 
-6. Backend Comparison Table
-Backend	Bursts	Wrap	FIFO	WSTRB	Multi‑ID	Use Case
-Generic	✔	✔	✔	✔	✘	simulation
-AXI‑FULL	✔	✔	✔	✔	✔	high‑performance
-AXI‑LITE	✘	✘	✘	✔	✘	MMIO
-AHB‑FULL	✔	✔	✔	✘	✘	deterministic SoCs
-AHB‑LITE	limited	limited	✘	✘	✘	simple peripherals
-TileLink Bridge	✔	✔	✘	✔	✔	RISC‑V systems
+# 8. Summary
 
-
-7. Summary
 DexterLab backends:
 
-convert high‑level commands into bus transactions
+- Convert parser commands into bus transactions
+- Preserve a common parser interface
+- Share a common response architecture
+- Support AXI, AHB, TileLink and Generic execution models
+- Handle protocol-specific validation
+- Detect and report errors
+- Support timeout management
+- Integrate directly with the arbiter
+- Require no wrapper layer
 
-support AXI, AHB, TileLink, and Generic protocols
+Backends are the foundation that allows DexterLab to operate across heterogeneous hardware systems while preserving a unified command and response model.
 
-integrate directly with the arbiter
+---
 
-support bursts, wrap, FIFO, atomic
-
-propagate errors
-
-are easy to extend
-
-require no wrapper layer
-
-Backends are the foundation that allows DexterLab to operate across heterogeneous
-hardware systems while preserving a unified command interface.
-
-End of Document
+# End of Document

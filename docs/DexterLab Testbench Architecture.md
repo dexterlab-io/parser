@@ -1,314 +1,558 @@
-DexterLab Testbench Architecture
-(Versione 2026 — Parser, Arbiter, Backend, Memory Models, Master)
+# DexterLab Testbench Architecture
 
-The DexterLab Testbench provides a complete simulation environment for executing
-.cmd files, validating backends, testing arbiter behavior, and integrating
-hardware masters.
-It is designed to be modular, deterministic, bus‑agnostic, and
-compatible with any IEEE‑compliant VHDL simulator.
+(Version 2026 — Parser, Arbiter, Backend, Memory Models, Master)
 
-This document describes the internal architecture of the testbench, its
-components, and how they interact.
+The DexterLab Testbench provides a complete simulation environment for validating the entire DexterLab command execution architecture.
 
-1. High‑Level Architecture
-mermaid
+The testbench supports:
+
+- Command-file execution
+- Backend validation
+- Arbitration verification
+- Memory model verification
+- Error injection testing
+- Hardware master integration
+- TileLink integration
+
+The architecture is modular, deterministic, protocol-independent, and portable across IEEE-compliant VHDL simulators.
+
+---
+
+# 1. High-Level Architecture
+
+The testbench simulates the complete DexterLab execution pipeline.
+
+```mermaid
 flowchart TD
-    A[Parser Engine] --> B[Arbiter]
-    M[Hardware Master] --> B
+
+    A[Parser Engine]
+        --> B[Arbiter]
+
+    M[Hardware Master]
+        --> B
+
     B --> C[Backend Executor]
-    C --> D[Memory Models (REG/RAM/FIFO)]
+
+    C --> D[Memory Models]
+
     D --> C
+
     C --> B
+
     B --> A
+
     B --> M
-The testbench simulates the full DexterLab pipeline:
+```
 
-Codice
-cmd_parser → arbiter → backend → memory models → backend → arbiter → parser/master
-2. Testbench Components
-The testbench contains the following modules:
+Execution flow:
 
-Component	Description
-Parser Engine	Reads .cmd files and generates t_cmd_out
-Master Placeholder	Generates continuous READs (future: real hardware master)
-Arbiter	Selects between parser and master
-Backend	Executes commands using AXI/AHB/Generic semantics
-REG Model	8 registers at 0x0000–0x001F
-RAM Model	Memory block at 0x1000–0x2FFF
-FIFO Model	FIFO endpoints at 0x3000 and 0x3100
-Clock/Reset Generator	Drives synchronous backends
-Waveform Dump	Optional VCD/FST/XSIM dump
-Test Sequencer	Runs multiple .cmd files
+```text
+Parser / Master
+       |
+       v
+    Arbiter
+       |
+       v
+    Backend
+       |
+       v
+ Memory Models
+       |
+       v
+    Backend
+       |
+       v
+    Arbiter
+       |
+       v
+Parser / Master
+```
 
+This architecture mirrors the execution model used throughout the DexterLab ecosystem.
 
-All components are pure VHDL and portable across simulators.
+---
 
-3. Parser Integration
-The parser engine:
+# 2. Testbench Components
 
-loads .cmd files
+The standard testbench contains the following components.
 
-tokenizes and parses commands
+| Component | Purpose |
+|------------|----------|
+| Parser Engine | Executes `.cmd` files |
+| Hardware Master | Secondary hardware command source |
+| Arbiter | Selects active command source |
+| Backend Executor | Executes commands |
+| REG Model | Register region simulation |
+| RAM Model | Memory simulation |
+| FIFO Model | FIFO endpoint simulation |
+| Clock Generator | System clock |
+| Reset Generator | System reset |
+| Waveform Support | Simulator waveform generation |
+| Test Sequencer | Regression execution |
 
-validates semantics
+All components are implemented in portable VHDL.
 
-splits bursts
+---
 
-computes wrap masks
+# 3. Parser Integration
 
-enforces atomic mode
+The parser is responsible for:
 
-outputs t_cmd_out
+- Loading command files
+- Tokenizing input
+- Decoding commands
+- Validating syntax
+- Validating semantics
+- Expanding logical commands
+- Generating micro-commands
+- Validating wrap configuration
+- Building `t_cmd_out`
+- Consuming `t_rsp_in`
 
-receives t_rsp_in
+The parser provides:
 
-In the testbench, the parser is instantiated as:
+```text
+t_cmd_out
+t_rsp_out
+```
 
-vhdl
-u_parser : entity work.cmd_parser
-    port map (
-        clk => clk,
-        rst => rst,
-        cmd_out => parser_cmd,
-        rsp_in  => parser_rsp_in
-    );
-4. Master Placeholder Integration
-The master placeholder (cmd_master) generates:
+and receives:
 
-continuous READ commands
+```text
+t_rsp_in
+```
 
-no FSM
+The parser does not generate bus transactions directly.
 
-no interrupt handling
+All protocol execution is delegated to the backend layer.
 
-no response processing
+---
 
-It is used to validate arbiter behavior.
+# 4. Hardware Master Integration
 
-vhdl
-u_master : entity work.cmd_master
-    port map (
-        clk => clk,
-        rst => rst,
-        start => master_start,
-        cmd_out => master_cmd,
-        rsp_in  => master_rsp_in
-    );
-Future versions will replace this with:
+The testbench may instantiate:
 
-RISC‑V master
+```text
+cmd_master
+```
 
-DMA master
+which acts as a hardware-originated command source.
 
-custom FPGA logic
+Current placeholder behavior:
 
-5. Arbiter Integration
-The arbiter selects between parser and master:
+```text
+cmd_write = 0
+cmd_burst = 0
+cmd_wrap  = 0
+cmd_fifo  = 0
 
-vhdl
-u_arbiter : entity work.arbiter_mux
-    port map (
-        parser_cmd => parser_cmd,
-        master_cmd => master_cmd,
-        backend_cmd => backend_cmd,
-        backend_rsp => backend_rsp,
-        parser_rsp => parser_rsp,
-        master_rsp => master_rsp
-    );
-The arbiter enforces:
+cmd_len   = 1
 
-atomic mode
+cmd_addr  = 0x00000000
+```
 
-pending flags
+Result:
 
-priority rules
+```text
+Continuous READ transactions
+```
 
-deterministic switching
+The placeholder implementation is used to validate:
 
-6. Backend Integration
-The testbench can instantiate any backend:
+- Arbiter ownership
+- Backend routing
+- Response routing
+- Multi-source execution
 
-Generic Backend
-vhdl
-u_backend : entity work.backend_generic
-AXI‑FULL Backend
-vhdl
-u_backend : entity work.backend_axi_full
-AHB‑FULL Backend
-vhdl
-u_backend : entity work.backend_ahb_full
-AXI‑LITE / AHB‑LITE (future)
-vhdl
-u_backend : entity work.backend_axi_lite
-Backends convert t_cmd_out into bus transactions and interact with memory
-models.
+Future versions may be replaced by:
 
-7. Memory Models
-7.1 REG Model
-8 registers at:
+- RISC-V processors
+- DMA engines
+- FPGA accelerators
+- Embedded controllers
 
-Codice
-0x0000–0x001F
-Zero‑wait‑state.
+---
 
-7.2 RAM Model
-Contiguous memory at:
+# 5. Arbiter Integration
 
-Codice
-0x1000–0x2FFF
-Supports:
+The arbiter manages backend ownership.
 
-WSTRB
+Responsibilities include:
 
-burst
+- Source selection
+- Pending command tracking
+- Response routing
+- Ownership retention
+- Locked execution support
 
-wrap
+The arbiter receives:
 
-FIFO semantics (when accessed through FIFO commands)
+```text
+Parser
+Master
+```
 
-7.3 FIFO Model
-Two endpoints:
+and forwards commands to:
 
-Codice
-0x3000 → FIFO_WRITE
-0x3100 → FIFO_READ
-Supports:
+```text
+Backend Executor
+```
 
-push
+Locked execution is supported through:
 
-pop
+```text
+cmd_lock
+```
 
-check
+which prevents ownership changes during protected command sequences.
 
-underflow detection
+---
 
-overflow detection
+# 6. Backend Integration
 
-8. Clock and Reset
-The testbench provides:
+The testbench supports execution using any DexterLab backend.
 
-synchronous clock for AXI/AHB backends
+Supported backends:
 
-asynchronous reset for parser and arbiter
+```text
+backend_generic
+backend_axi_full
+backend_axi_lite
+backend_ahb_full
+backend_ahb_lite
+```
 
-configurable clock period
+Each backend receives:
+
+```text
+t_cmd_out
+t_rsp_out
+```
+
+and generates:
+
+```text
+t_rsp_in
+```
+
+Backend selection is independent of parser behavior.
+
+---
+
+# 7. Memory Models
+
+Memory models provide simulation targets for backend accesses.
+
+---
+
+# 7.1 REG Model
+
+Address range:
+
+```text
+0x0000 – 0x001F
+```
+
+Contents:
+
+```text
+REG0
+REG1
+REG2
+REG3
+REG4
+REG5
+REG6
+REG7
+```
+
+Characteristics:
+
+- Single-beat accesses
+- Control/status semantics
+- Deterministic behavior
+
+---
+
+# 7.2 RAM Model
+
+Address range:
+
+```text
+0x1000 – 0x2FFF
+```
+
+Capabilities:
+
+- Read operations
+- Write operations
+- WSTRB support
+- Burst operations
+- Wrap operations
+- Fill operations
+- Dump operations
+- Poll operations
+
+The RAM model acts as the primary validation target for backend testing.
+
+---
+
+# 7.3 FIFO Model
+
+Endpoints:
+
+```text
+0x3000 -> FIFO_WRITE
+0x3100 -> FIFO_READ
+```
+
+Capabilities:
+
+- Push operations
+- Pop operations
+- FIFO checking
+- Underflow detection
+- Overflow detection
+
+---
+
+# 8. Clock and Reset
+
+The testbench provides standard system timing.
 
 Example:
 
-vhdl
+```vhdl
 clk <= not clk after 5 ns;
-rst <= '1', '0' after 20 ns;
-9. Waveform Dump
-The testbench supports:
 
-GHDL VCD/FST dump
+resetn <= '0',
+          '1' after 20 ns;
+```
 
-Vivado/xsim waveform dump
+Used by:
 
-QuestaSim/ModelSim wave.do scripts
+- Parser
+- Arbiter
+- Backends
+- Memory models
 
-Example (GHDL):
+---
 
-vhdl
--- ghdl -r tb --wave=tb.fst
-10. Test Sequencer
-The testbench can run multiple .cmd files:
+# 9. Common Execution Model
 
-Codice
+The testbench follows the standard DexterLab execution flow.
+
+```text
+Phase 1
+--------
+Command execution
+
+Phase 2
+--------
+Response publication
+
+Phase 3
+--------
+Command completion
+```
+
+Command completion is indicated through:
+
+```text
+rsp_end_cmd
+```
+
+This model is shared by all supported backends.
+
+---
+
+# 10. Waveform Support
+
+Supported waveform outputs include:
+
+```text
+VCD
+FST
+WLF
+XSIM
+```
+
+Examples:
+
+### GHDL
+
+```bash
+ghdl -r tb --wave=tb.fst
+```
+
+### Questa / ModelSim
+
+```text
+wave.do
+```
+
+### Vivado
+
+```text
+xsim waveform database
+```
+
+Waveforms simplify:
+
+- Debugging
+- Protocol analysis
+- Regression diagnosis
+
+---
+
+# 11. Test Sequencer
+
+The testbench can execute multiple command files.
+
+Example sequence:
+
+```text
 init.cmd
 memory_test.cmd
 fifo_test.cmd
 burst_test.cmd
 wrap_test.cmd
 error_test.cmd
-The sequencer:
+```
 
-loads each file
+Typical execution flow:
 
-resets parser state
+```text
+Load file
+Execute commands
+Collect responses
+Generate report
+Load next file
+```
 
-runs commands
+---
 
-checks responses
+# 12. DRY_RUN Mode
 
-prints summary
+DRY_RUN allows parser validation without backend execution.
 
-11. DRY_RUN Mode in Testbench
-DRY_RUN mode can be enabled:
+In DRY_RUN mode:
 
-via command line
+```text
+Commands parsed
+Commands validated
+Commands printed
+Commands not executed
+```
 
-via testbench constant
+Typical use cases:
 
-via parser configuration
+- Syntax validation
+- Semantic validation
+- CI pipelines
+- Documentation examples
 
-In DRY_RUN:
+Additional details:
 
-commands are parsed
+```text
+cmd_dry_run.md
+```
 
-validated
+---
 
-printed
+# 13. TileLink Bridge Integration
 
-not executed
+Optional TileLink support may be added through:
 
-Useful for:
+```text
+tilelink_bridge
+```
 
-syntax validation
-
-semantic validation
-
-CI pipelines
-
-12. TileLink Bridge Integration (optional)
-The testbench can instantiate the TileLink bridge:
-
-vhdl
-u_tl_bridge : entity work.tilelink_bridge
 This allows simulation of:
 
-RISC‑V TileLink masters
+- TL-UL
+- TL-UH
+- RISC-V TileLink masters
 
-TL‑UL / TL‑UH transactions
+Execution flow:
 
-TL → t_cmd_out conversion
+```text
+TileLink
+      |
+      v
+TileLink Bridge
+      |
+      v
+t_cmd_out
+      |
+      v
+Arbiter
+      |
+      v
+Backend
+```
 
-t_rsp_in → TL conversion
+Responses return through:
 
-13. Testbench Flow Summary
-mermaid
+```text
+t_rsp_in
+      |
+      v
+TileLink Bridge
+      |
+      v
+TileLink Response
+```
+
+---
+
+# 14. Testbench Flow Summary
+
+```mermaid
 flowchart TD
-    A[Load .cmd file] --> B[Parser Engine]
-    B --> C[Arbiter]
-    D[Master] --> C
+
+    A[Load Command File]
+        --> B[Parser]
+
+    D[Hardware Master]
+        --> C[Arbiter]
+
+    B --> C
+
     C --> E[Backend]
-    E --> F[Memory Models]
+
+    E --> F[REG/RAM/FIFO Models]
+
     F --> E
+
     E --> C
+
     C --> B
+
     C --> D
-14. Summary
-The DexterLab Testbench:
+```
 
-simulates the full command pipeline
+---
 
-supports all backends
+# 15. Summary
 
-supports parser + master arbitration
+The DexterLab Testbench provides a complete verification environment for the entire command ecosystem.
 
-includes REG/RAM/FIFO models
+It supports:
 
-supports TileLink bridge
+- Parser execution
+- Hardware masters
+- Arbitration
+- Backend validation
+- REG/RAM/FIFO simulation
+- Error handling verification
+- TileLink integration
+- Waveform generation
+- DRY_RUN execution
+- Regression testing
 
-supports DRY_RUN
+The architecture mirrors the real DexterLab command flow and serves as the primary validation environment for parser, arbiter, backend, and future hardware-master development.
 
-supports waveform dumps
+---
 
-supports multi‑file test sequences
-
-is portable across all VHDL simulators
-
-It is the primary environment for validating DexterLab commands, backends,
-arbiter behavior, and hardware master integration.
-
-End of Document
+# End of Document

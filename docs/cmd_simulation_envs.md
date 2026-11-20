@@ -1,272 +1,305 @@
-markdown
 # DexterLab Simulation Environments
 
-DexterLab supports two independent simulation environments:
+DexterLab is designed to operate with multiple simulation environments ranging from lightweight open-source simulators to full-featured commercial verification platforms.
 
-1. **GHDL** — lightweight, fast, ideal for parser and backend logic  
-2. **Vivado/xsim** — full-featured, ideal for AXI/AHB waveform-level simulation
+All simulation environments execute the same command architecture and the same VHDL source code.
 
-Both environments execute the same VHDL sources and the same command parser, but
-serve different purposes and workflows.
+Common architecture:
 
-This document describes the structure, usage, and differences between the two
-simulation environments.
+```text
+Parser / Master
+        |
+        v
+     Arbiter
+        |
+        v
+     Backend
+        |
+        v
+       Bus
+```
+
+Common interfaces:
+
+```text
+t_cmd_out
+t_rsp_out
+t_rsp_in
+```
+
+The selected simulator affects workflow, debugging capabilities, waveform viewers and tool integration, but does not change the DexterLab execution model.
 
 ---
 
-# 1. Directory Structure
+# 1. Supported Simulation Environments
 
-DexterLab uses two separate simulation directories:
+The DexterLab architecture is simulator-independent.
 
+Supported environments include:
+
+## Open Source
+
+- GHDL
+
+## FPGA Vendor Tools
+
+- Vivado / XSIM
+
+## Commercial Simulators
+
+- QuestaSim
+- ModelSim
+- Riviera-PRO
+- Xcelium
+- VCS
+
+Any simulator with adequate VHDL support may be used.
+
+---
+
+# 2. Directory Organization
+
+A typical project may use separate simulation directories.
+
+```text
 sim/
+
 ├── ghdl/
-│    ├── Makefile
-│    ├── run.sh
-│    ├── waves.ghw
-│    └── tb_.vhd
-└── vivado/
-├── run.tcl
-├── compile.tcl
-├── simulate.tcl
-├── waves.wdb
-└── tb_.vhd
+│   ├── Makefile
+│   ├── run.sh
+│   └── tb_*.vhd
 
-Codice
+├── vivado/
+│   ├── *un.tcl
+│   ├── compile.tcl
+│   ├── simulate.tcl
+│   └── tb_*.vhd
+```
 
-Each environment contains:
+The exact structure may vary.
 
-- its own testbench files  
-- its own scripts  
-- its own waveform format  
-- its own compilation flow  
+All environments share:
 
-The VHDL sources under `src/` are shared.
+```text
+src/
+docs/
+cmd files
+```
 
 ---
 
-# 2. GHDL Environment
+# 3. GHDL Environment
 
-GHDL is used for:
+GHDL is typically used for:
 
-- fast iteration  
-- parser validation  
-- DRY_RUN testing  
-- backend logic testing  
-- arbiter testing  
-- command flow validation  
-- CI automation  
+- Parser validation
+- DRY_RUN validation
+- Arbiter validation
+- Backend development
+- Regression testing
+- Continuous integration
 
-### 2.1 Features
+Advantages:
 
-- no vendor dependencies  
-- runs on Linux and Windows  
-- supports `.ghw` waveform format  
-- ideal for pure-VHDL simulation  
-- extremely fast compile/run cycle  
+- Open source
+- Fast compilation
+- Fast simulation
+- Easy automation
+- Excellent Linux support
 
-### 2.2 Typical Workflow
+Typical workflow:
 
+```bash
 cd sim/ghdl
+
 make
+
 ./run.sh
+
 gtkwave waves.ghw
-
-Codice
-
-### 2.3 Recommended Use Cases
-
-- testing `.cmd` files  
-- validating DRY_RUN  
-- verifying parser → arbiter → backend flow  
-- debugging error conditions  
-- verifying burst/wrap/FIFO logic  
-- verifying atomic mode  
-- verifying command timing  
-
-GHDL is the preferred environment for **logic-level** simulation.
+```
 
 ---
 
-# 3. Vivado/xsim Environment
+# 4. Vivado / XSIM Environment
 
-Vivado/xsim is used for:
+Vivado simulations are typically used for:
 
-- AXI-FULL waveform simulation  
-- AXI-LITE waveform simulation  
-- AHB-FULL waveform simulation  
-- AHB-LITE waveform simulation  
-- TileLink bridge validation  
-- timing-level debugging  
-- bus protocol verification  
-- integration with vendor IP cores  
-- waveform inspection with xsim or Vivado GUI  
+- AXI protocol debugging
+- AHB protocol debugging
+- IP integration
+- FPGA-oriented verification
+- Detailed waveform analysis
 
-### 3.1 Features
+Advantages:
 
-- vendor-accurate AXI/AHB behavior  
-- `.wdb` waveform format  
-- full-featured waveform viewer  
-- supports complex bus timing  
-- ideal for backend-level protocol validation  
+- Integrated waveform viewer
+- FPGA workflow integration
+- Vendor IP support
 
-### 3.2 Typical Workflow
+Typical workflow:
 
+```bash
 cd sim/vivado
+
 vivado -mode batch -source run.tcl
-
-Codice
-
-### 3.3 Recommended Use Cases
-
-- verifying AXI/AHB timing  
-- verifying VALID/READY handshake  
-- verifying burst/wrap boundary rules  
-- verifying error propagation  
-- verifying TileLink bridge behavior  
-- verifying integration with vendor IP  
-
-Vivado è l’ambiente preferito per **waveform-level** simulation.
+```
 
 ---
 
-# 4. Differences Between GHDL and Vivado
+# 5. Commercial Simulators
 
-| Feature | GHDL | Vivado/xsim |
-|---------|------|--------------|
-| Speed | ★★★★★ | ★★☆☆☆ |
-| AXI accuracy | ★★☆☆☆ | ★★★★★ |
-| AHB accuracy | ★★☆☆☆ | ★★★★★ |
-| Parser testing | ★★★★★ | ★★★☆☆ |
-| DRY_RUN | ★★★★★ | ★★★☆☆ |
-| Waveform viewer | GTKWave | Vivado GUI |
-| Vendor IP integration | ✘ | ✔ |
-| CI automation | ✔ | ✔ (batch mode) |
+DexterLab can also be executed using:
 
----
+- QuestaSim
+- ModelSim
+- Riviera-PRO
+- Xcelium
+- VCS
 
-# 5. Shared Components
+These environments are commonly used for:
 
-Both environments use:
+- Enterprise verification flows
+- Large regressions
+- Mixed-language projects
+- UVM integrations
+- Advanced debug workflows
 
-- the same parser  
-- the same command packages  
-- the same backend logic  
-- the same arbiter  
-- the same `.cmd` files  
-- the same `t_cmd_out` / `t_rsp_in` interface  
-
-The difference is only in:
-
-- simulator  
-- scripts  
-- waveform format  
-- testbench style  
-
-Wrappers are no longer part of DexterLab 2026.
+DexterLab does not require simulator-specific modifications.
 
 ---
 
-# 6. Testbench Philosophy
+# 6. Shared Components
 
-DexterLab uses **two styles of testbench**:
+All supported environments execute:
 
-### ✔ GHDL testbenches  
-- minimal  
-- pure VHDL  
-- no vendor libraries  
-- ideal for logic validation  
+```text
+Parser Engine
+Hardware Master
+Arbiter
+Backend Layer
+Memory Models
+```
 
-### ✔ Vivado testbenches  
-- include AXI/AHB BFMs  
-- include vendor timing models  
-- ideal for protocol validation  
+using:
 
-Both testbenches execute the same `.cmd` files.
+```text
+t_cmd_out
+t_rsp_out
+t_rsp_in
+```
 
----
+and the same command files:
 
-# 7. DRY_RUN in Simulation
+```text
+*.cmd
+```
 
-DRY_RUN works identically in both environments:
-
-- no hardware commands  
-- no bus activity  
-- no backend interaction  
-- pure parser validation  
-
-This makes DRY_RUN ideal for:
-
-- CI pipelines  
-- pre-simulation validation  
-- debugging `.cmd` files  
-- verifying command structure  
+Behavior remains consist*nt across simulators.
 
 ---
 
-# 8. Summary
+# 7* DRY_RUN Support
 
-DexterLab provides two simulation environments:
+DRY_RUN operates*identically in all supported envir*nments.
 
-### **GHDL**
-- fast  
-- lightweight  
-- ideal for parser/backend logic  
-- perfect for DRY_RUN  
-- pure VHDL  
+Capabilities:
 
-### **Vivado/xsim**
-- accurate AXI/AHB timing  
-- vendor-level waveform  
-- ideal for backend integration  
-- ideal for bus protocol debugging  
+- Command *arsing
+- Syntax validation
+- Seman*ic validation
+- Command normalizat*on
 
-Both environments use the same VHDL sources and the same command parser.
+Without:
 
----
+- Arbiter execution
+* Backend execution
+- Bus traffic
+-*Hardware side effects
 
-# 9. Other Supported Simulators (Cadence, Synopsys, Mentor, Aldec)
+Typical use*cases:
 
-DexterLab is fully compatible with any professional VHDL/Verilog simulator.
-
-Users with commercial licenses may use:
-
-- **Cadence Xcelium**  
-- **Synopsys VCS**  
-- **Mentor QuestaSim**  
-- **Aldec Riviera-PRO**  
-- **ModelSim PE/SE**  
-- **Any IEEE-compliant VHDL simulator**  
-
-### Requirements
-
-All simulators must support:
-
-- VHDL‑2008 (recommended)  
-- `std_logic_1164` and `numeric_std`  
-- hierarchical elaboration  
-- record types  
-- unconstrained arrays  
-- packages and configurations  
-
-### Notes
-
-- DexterLab does not provide vendor-specific scripts for these simulators.  
-- Users may create their own `.do`, `.tcl`, or shell scripts.  
-- The parser, arbiter, and backends require no vendor extensions.  
-- DRY_RUN works identically in all simulators.  
-- AXI/AHB timing accuracy depends on the simulator’s BFMs.  
-
-### Typical Usage
-
-Users typically:
-
-1. compile all VHDL sources under `src/`  
-2. compile the testbench under `sim/<custom>/`  
-3. run simulation with their vendor tool  
-4. load waveforms in the vendor GUI  
-
-DexterLab does not impose any restriction on simulator choice.
+- CI pipelines
+- Parser de*elopment
+- Documentation validatio*
+- Command verification
 
 ---
 
-# End of Document
+# 8.*Typical Simulator Selection
+
+| Goa* | Recommended Environment |
+|----*---|--------|
+| Parser development*| GHDL |
+| DRY_RUN validation | GH*L |
+| Regression testing | GHDL |
+* AXI protocol debug | Vivado / X*IM |
+| AHB protocol debug | Vivado*/ XSIM |
+| Vendor*IP integration | Vivado |
+* Enterprise verification | QuestaS*m / Xcelium*/ VCS |
+| Mixed-language projects * Commercial simulators |
+
+---
+
+#*9. Verification Philosophy
+
+Dexter*ab*intentionally separates:
+
+```*ext
+Command Semantics
+```
+
+from*
+
+```text
+Simulator Choice*```
+
+This guarantees that:
+
+- The *arser*behaves identically
+- The*arbiter behaves identically
+- Back*nd*logic behaves*identically
+- Command files*remain portable
+
+*cross all*supported environments.
+
+---
+
+* 10. Summary
+
+DexterLab supports a*wide range of simulation environme*ts*while preserving a single executio* architecture.
+
+Supported simulato*s include:
+
+- G*DL
+- Vivado / XSIM
+* QuestaSim
+- ModelSim
+- Riviera*PRO
+- Xcelium
+- V*S
+
+All environments execute*the same:
+
+```text
+Parser /*Master
+        |
+        v
+     Ar*iter*        |
+        v
+     Backend
+`**
+
+architecture and share the same *ommand interfaces:
+
+```text
+t_cmd_*ut
+t_rsp*out
+t_rsp_in
+```
+
+ensuring consist*nt behavior across development, ve*ification and*integration workflows.
+
+---
+
+# End*of Document

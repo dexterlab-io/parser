@@ -1,291 +1,437 @@
-DexterLab Arbiter Specification
-(Versione 2026 — Multi‑Source, Zero‑Latency, Simulation‑Optimized)
+# DexterLab Arbiter Specification
 
-The DexterLab Arbiter (arbiter_mux) is the module that selects which command
-source—Parser or Hardware Master—drives the backend at any given time.
-It enforces atomicity, ordering, pending rules, and deterministic routing of both
-commands (t_cmd_out) and responses (t_rsp_in).
+(Version 2026 — Multi-Source Command Arbitration)
 
-The arbiter is intentionally fully asynchronous and simulation‑optimized.
-It is not intended for synthesis.
+The DexterLab Arbiter (`arbiter_mux`) is responsible for selecting which command source is allowed to access the backend execution layer.
 
-1. Overview
-DexterLab supports two command sources:
+The arbiter provides deterministic ownership management, command routing, response routing, and locked-sequence protection for all command producers in the DexterLab ecosystem.
 
-Parser Engine (text .cmd files)
+The current implementation supports two command sources:
 
-Hardware Master (RISC‑V, DMA, FPGA logic)
+- Parser Engine
+- Hardware Command Master
 
-Both sources share the same interface:
+and operates through the unified DexterLab command interfaces:
 
-Codice
-t_cmd_out → arbiter → backend → bus
-The arbiter ensures:
+```text
+t_cmd_out
+t_rsp_out
+t_rsp_in
+```
 
-correct source selection
+---
 
-atomic mode enforcement
+# 1. Overview
 
-pending command tracking
+The arbiter sits between command generators and backend executors.
 
-deterministic routing of responses
+```text
+Parser
+     |
+     |
+Master
+     |
+     v
+  Arbiter
+     |
+     v
+  Backend
+     |
+     v
+     Bus
+```
 
-zero‑latency switching
+The arbiter is responsible for:
 
-no interleaving of atomic sequences
+- Source selection
+- Command forwarding
+- Response routing
+- Ownership management
+- Pending command tracking
+- Locked sequence handling
 
-2. Architecture Diagram
-mermaid
+The backend remains completely unaware of the command origin.
+
+---
+
+# 2. Architecture
+
+```mermaid
 flowchart LR
-    P[Parser] --> A[Arbiter]
-    M[Hardware Master] --> A
+
+    P[Parser Engine]
+        --> A[Arbiter]
+
+    M[Hardware Master]
+        --> A
+
     A --> B[Backend]
+
     B --> A
+
     A --> P
+
     A --> M
-3. Arbiter Interfaces
-3.1 Parser Side
-Signal	Direction	Description
-parser_valid	in	parser has a command ready
-parser_ready	out	arbiter ready to accept parser command
-parser_cmd	in	t_cmd_out
-parser_rsp_in	in	parser response control
-parser_rsp_out	out	t_rsp_in
+```
 
+---
 
-3.2 Master Side
-Same interface as parser:
+# 3. Interfaces
 
-Signal	Direction	Description
-master_valid	in	master has a command ready
-master_ready	out	arbiter ready to accept master command
-master_cmd	in	t_cmd_out
-master_rsp_in	in	master response control
-master_rsp_out	out	t_rsp_in
+The arbiter communicates through three standard DexterLab interfaces.
 
+---
 
-3.3 Backend Side
-Signal	Direction	Description
-cmd_valid	out	arbiter sends command to backend
-cmd_ready	in	backend ready
-cmd	out	t_cmd_out
-rsp_in	in	t_rsp_in
-rsp_out	out	t_rsp_out
+# 3.1 Parser Side
 
+| Signal | Direction | Description |
+|----------|----------|----------|
+| parser_valid | in | Parser command valid |
+| parser_ready | out | Arbiter ready |
+| parser_cmd | in | `t_cmd_out` |
+| parser_rsp_in | in | `t_rsp_out` |
+| parser_rsp_out | out | `t_rsp_in` |
 
-4. FSM Description
-The arbiter uses a three‑state FSM:
+---
 
-vhdl
+# 3.2 Master Side
+
+| Signal | Direction | Description |
+|----------|----------|----------|
+| master_valid | in | Master command valid |
+| master_ready | out | Arbiter ready |
+| master_cmd | in | `t_cmd_out` |
+| master_rsp_in | in | `t_rsp_out` |
+| master_rsp_out | out | `t_rsp_in` |
+
+---
+
+# 3.3 Backend Side
+
+| Signal | Direction | Description |
+|----------|----------|----------|
+| valid | out | Command valid |
+| ready | in | Backend ready |
+| cmd | out | `t_cmd_out` |
+| rsp_out | out | `t_rsp_out` |
+| rsp_in | in | `t_rsp_in` |
+
+---
+
+# 4. FSM Architecture
+
+The arbiter uses a synchronous FSM.
+
+```vhdl
 type t_state is (
     IDLE,
     PARSER_ACTIVE,
     MASTER_ACTIVE
 );
-4.1 IDLE
-No active source
+```
 
-If parser_valid → select parser
+Current state is stored in:
 
-Else if master_valid → select master
+```vhdl
+state_current
+```
 
-4.2 PARSER_ACTIVE
-Parser remains active if:
+Next state is determined by:
 
-it has a pending command
+```vhdl
+state_next
+```
 
-atomic mode is active
+---
 
-backend is ready
+# 5. IDLE State
 
-parser has another command ready
+No source currently owns the backend.
 
-Master may take control only if:
+Selection rules:
 
-parser is not atomic
+```text
+Parser has priority if
+parser_valid = 1
 
-parser has no pending commands
+otherwise
 
-master_valid = '1'
+Master is selected if
+master_valid = 1
+```
 
-backend ready = '1'
+Result:
 
-4.3 MASTER_ACTIVE
-Symmetric to PARSER_ACTIVE.
+```text
+IDLE
+    |
+    +--> PARSER_ACTIVE
+    |
+    +--> MASTER_ACTIVE
+```
 
-5. Pending Command Logic
-The arbiter tracks pending commands:
+---
 
-vhdl
-signal s_parser_pending : std_logic;
-signal s_master_pending : std_logic;
-A command becomes pending when:
+# 6. PARSER_ACTIVE State
 
-Codice
-cmd_valid = '1' AND cmd_ready = '1'
-Pending commands are cleared when:
+The parser currently owns backend access.
 
-rsp_in.rsp_err_valid = '1'
+The state is maintained while:
 
-FSM switches away from the active source
+- parser command is pending
+- parser holds a lock (`cmd_lock`)
+- parser continues issuing commands
 
-Pending flags ensure:
+Ownership may transfer to the master only when ownership conditions allow it.
 
-no source loses ownership mid‑command
+---
 
-atomic sequences remain uninterrupted
+# 7. MASTER_ACTIVE State
 
-6. Command Routing
-The arbiter selects the correct command based on:
+Identical behavior applied to the hardware master.
 
-current state
+The master retains ownership while:
 
-next state
+- commands remain pending
+- lock is active
+- additional commands are available
 
-pending flags
+---
 
-valid flags
+# 8. Pending Command Tracking
 
-atomic mode
+The arbiter stores accepted commands internally.
 
-Routing diagram:
+Internal signals:
 
-mermaid
-flowchart TD
-    A[State + Next State] --> B{Parser or Master?}
-    B -->|Parser| C[Forward parser_cmd or s_parser_cmd]
-    B -->|Master| D[Forward master_cmd or s_master_cmd]
-    C --> E[cmd → backend]
-    D --> E
-7. Response Routing
-Responses from the backend are routed to the active source:
+```vhdl
+s_parser_pending
+s_master_pending
+```
 
-vhdl
-parser_rsp_out <= rsp_in when state_next = PARSER_ACTIVE else s_rsp_out_clear;
-master_rsp_out <= rsp_in when state_next = MASTER_ACTIVE else s_rsp_out_clear;
-Diagram:
+A command becomes pending after:
 
-mermaid
-flowchart LR
-    X[rsp_in] --> A{Active Source?}
-    A -->|Parser| P[parser_rsp_out]
-    A -->|Master| M[master_rsp_out]
-8. Ready Signal Logic
-The arbiter asserts ready signals based on:
+```text
+valid = 1
+ready = 1
+```
 
-next state
+The command and response-control records are copied into internal registers.
 
-pending flags
+---
 
-backend readiness
+# 9. Pending Command Release
 
-Diagram:
+Pending ownership is released when:
 
-mermaid
-flowchart TD
-    A[Backend ready] --> B{Next state?}
-    B -->|Parser| C[parser_ready = 1]
-    B -->|Master| D[master_ready = 1]
-9. Atomic Mode
-Atomic mode (cmd_atomic = '1') forces the arbiter to:
+```vhdl
+rsp_in.rsp_end_cmd = '1'
+```
 
-keep the current source active
+At that point:
 
-ignore the other source
+```text
+Command completed
+Resources released
+Ownership may change
+```
 
-prevent interleaving
+This behaviour follows the common DexterLab execution model:
 
-Diagram:
+```text
+Phase 1
+--------
+Command execution
 
-mermaid
-flowchart LR
-    A[cmd_atomic = 1] --> B[Lock Source]
-    B --> C[Ignore other commands]
-Atomicity is enforced at the arbiter level, not at backend level.
+Phase 2
+--------
+Response publication
 
-10. Error Handling
-If the backend reports an error:
+Phase 3
+--------
+Command complete
+```
 
-Codice
-rsp_in.rsp_err_valid = '1'
-The arbiter:
+---
 
-clears pending command
+# 10. Command Routing
 
-stays in current state
+The arbiter routes commands according to:
 
-forwards error to correct source
+- current state
+- next state
+- pending status
+- valid status
 
-Diagram:
+Routing sources include:
 
-mermaid
-flowchart TD
-    A[rsp_err_valid = 1] --> B[Clear pending]
-    B --> C[Stay in current state]
-    C --> D[Forward error]
-11. Asynchronous Design Rationale
-The arbiter is fully asynchronous:
+```text
+parser_cmd
+master_cmd
+s_parser_cmd
+s_master_cmd
+```
 
-no registered command path
+depending on ownership and pending state.
 
-no registered source selector
+---
 
-no clock‑aligned handshakes
+# 11. Response Routing
 
-This is correct because:
+Backend responses are routed according to ownership.
 
-DexterLab backends are simulation models
+Implementation:
 
-simulators evaluate signals in delta cycles
+```vhdl
+parser_rsp_out <= rsp_in
+    when state_next = PARSER_ACTIVE
+    else s_rsp_out_clear;
 
-no metastability
+master_rsp_out <= rsp_in
+    when state_next = MASTER_ACTIVE
+    else s_rsp_out_clear;
+```
 
-no setup/hold violations
+Response delivery is therefore based on:
 
-no combinational glitches
+```text
+state_next
+```
 
-Benefits:
+rather than on command origin history.
 
-zero‑latency switching
+---
 
-instant reaction to valid/ready
+# 12. Ready Signal Logic
 
-perfect transparency for parser semantics
+Ready generation depends on:
 
-12. Synthesizable Version (Future)
-A hardware version would require:
+- backend readiness
+- ownership state
+- pending status
 
-registered sel signal
+Outputs:
 
-registered command path
+```text
+parser_ready
+master_ready
+```
 
-glitch‑free AXI/AHB handshake
+are generated from:
 
-synchronous atomic locking
+```vhdl
+s_parser_ready
+s_master_ready
+```
 
-simplified FSM
+---
 
-This version will be developed only for hardware deployments.
+# 13. Locked Sequences
 
-13. Summary
+DexterLab supports ownership locking through:
+
+```text
+cmd_lock
+```
+
+When enabled:
+
+```text
+cmd_lock = 1
+```
+
+the arbiter retains ownership for the active source.
+
+The competing source cannot obtain access until ownership is released.
+
+This mechanism protects multi-command critical sequences.
+
+---
+
+# 14. Response Handling
+
+The arbiter forwards all backend responses, including:
+
+```text
+rsp_valid
+rsp_last
+rsp_data
+
+rsp_err_valid
+rsp_err_code
+rsp_err_addr
+rsp_err_beat
+rsp_err_id
+
+rsp_end_cmd
+```
+
+No protocol-specific interpretation is performed.
+
+The arbiter only routes responses.
+
+---
+
+# 15. Implementation Characteristics
+
+The current arbiter implementation consists of:
+
+- Synchronous FSM
+- Registered pending-command storage
+- Combinational routing logic
+- Deterministic ownership rules
+
+It is not a fully asynchronous design.
+
+The implementation uses:
+
+```vhdl
+process(clk, resetn)
+```
+
+for:
+
+- FSM state storage
+- parser pending storage
+- master pending storage
+
+---
+
+# 16. Backend Independence
+
+The arbiter does not know whether the selected backend is:
+
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
+- Generic Backend
+
+All backend interactions occur exclusively through:
+
+```text
+t_cmd_out
+t_rsp_out
+t_rsp_in
+```
+
+---
+
+# 17. Summary
+
 The DexterLab Arbiter:
 
-selects between parser and hardware master
+- Selects between parser and hardware master
+- Tracks command ownership
+- Stores pending commands
+- Routes responses deterministically
+- Supports locked command sequences through `cmd_lock`
+- Implements a synchronous FSM architecture
+- Remains completely backend-independent
+- Forms the central connection between command producers and backend executors
 
-enforces atomicity
+It is the core arbitration layer of the DexterLab command execution architecture.
 
-tracks pending commands
+---
 
-routes commands and responses deterministically
-
-integrates seamlessly with all backends
-
-is fully asynchronous and simulation‑optimized
-
-is not intended for synthesis
-
-will gain a synchronous variant only for hardware releases
-
-It is the backbone of DexterLab’s multi‑source command architecture.
-
-End of Document
+# End of Document

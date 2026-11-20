@@ -1,200 +1,455 @@
-markdown
 # DexterLab Master Roadmap
 
-The DexterLab Hardware Command Master is intentionally designed as an open,
-extensible, multi‑generation module.  
-The current implementation is a minimal placeholder, but the architecture is
-meant to evolve across multiple device classes, bus types, and deployment
-scenarios.
+The DexterLab Hardware Command Master is intentionally designed as an extensible, long-term component of the DexterLab command ecosystem.
 
-This roadmap outlines the possible future directions of the master without
-restricting the design.  
-All sections are intentionally open‑ended.
+The current implementation is deliberately minimal, providing only the functionality required to validate integration with:
+
+- Arbiter
+- Backend layer
+- Command interfaces
+- Response interfaces
+
+Future generations of the master may evolve in multiple directions depending on system requirements, supported peripherals, and deployment targets.
+
+This roadmap is intentionally open-ended and should be viewed as a collection of potential evolution paths rather than a fixed development plan.
 
 ---
 
 # 1. Current State (2026)
 
-The current `cmd_master` implementation is a placeholder:
+The current implementation of:
 
-- activated by `start`  
-- issues a continuous READ at address `0x0000_0000`  
-- no FSM  
-- no interrupt handling  
-- no client/server logic  
-- no peripheral integration  
+```text
+cmd_master
+```
 
-This version exists only to keep the system integrated and compilable.
+is a placeholder command generator.
 
----
+Current behavior:
 
-# 2. Near‑Future Evolution (Local Peripherals)
+- Activated through `start`
+- Generates continuous READ operations
+- Uses the standard DexterLab command interfaces
+- Participates in arbitration
+- Accepts responses through the standard response path
 
-When real peripherals are introduced, the master will evolve into an event‑driven
-module capable of generating commands based on hardware activity.
+Generated command:
 
-Possible peripherals include:
+```text
+cmd_write = 0
+cmd_burst = 0
+cmd_wrap  = 0
+cmd_fifo  = 0
 
-- SPI (master/slave)  
-- I2C (master/slave)  
-- UART (RX/TX/IRQ)  
-- CAN / CAN‑FD  
-- PWM / timers  
-- ADC / DAC  
-- GPIO controllers  
+cmd_len   = 1
 
-### Possible features (open list)
+cmd_addr  = 0x00000000
+```
 
-- interrupt‑driven command generation  
-- event queues  
-- multi‑state FSM  
-- client/server roles  
-- atomic sequences  
-- burst/wrap operations  
-- FIFO‑based streaming  
-- error propagation  
-- timeout handling  
-- protocol‑specific command templates  
+Current implementation does not provide:
 
-None of these are mandatory; they will be added only when needed.
+- FSM-based control
+- Interrupt handling
+- Peripheral integration
+- Response analysis
+- Error recovery
+- Command scheduling
+
+The objective is simply to validate system integration.
 
 ---
 
-# 3. Mid‑Future Evolution (RISC‑V Integration)
+# 2. Near-Term Evolution
 
-DexterLab will eventually support RISC‑V masters through TileLink.
+Future releases may transform the master into an event-driven command generator capable of interacting with real peripherals.
 
-Possible directions:
+Potential integrations include:
 
-- TileLink UL/UH → `t_cmd_out` bridge  
-- RISC‑V firmware generating DexterLab commands  
-- DMA engines acting as masters  
-- interrupt controllers integrated with the master  
-- memory‑mapped peripherals controlled via DexterLab  
-- hybrid software/hardware command generation  
-
-### Open possibilities
-
-- multiple RISC‑V cores generating commands  
-- distributed masters with arbitration  
-- command batching  
-- command scripting from firmware  
-- remote debugging via DexterLab commands  
-
-Again, no constraints: the design remains open.
+- SPI
+- I²C
+- UART
+- CAN / CAN-FD
+- Timers
+- PWM modules
+- GPIO controllers
+- ADC/DAC subsystems
 
 ---
 
-# 4. Long‑Term Evolution (Ethernet + 10BASE‑T1S + RCP)
+## Potential Features
 
-DexterLab will support remote peripherals through:
+Examples of future capabilities include:
 
-- MAC Ethernet  
-- PHY 10BASE‑T1S  
-- RCP (Remote Control Protocol)  
-- remote command execution  
-- remote interrupt propagation  
-- deterministic latency channels  
+- Hardware interrupt handling
+- Command queues
+- Event queues
+- Multi-state FSMs
+- Response processing
+- Timeout supervision
+- Automatic retries
+- Protocol-specific command generation
 
-### Possible features
-
-- remote master instances  
-- remote event queues  
-- remote FSM synchronization  
-- remote error reporting  
-- remote atomic sequences  
-- distributed command routing  
-- multi‑node systems  
-- deterministic industrial networks  
-
-This is a major future milestone and intentionally left open.
+These features are optional and will be implemented only when justified by system requirements.
 
 ---
 
-# 5. Multi‑Master Architectures
+# 3. Extended Command Generation
 
-DexterLab may support multiple masters:
+Future masters may generate the full range of DexterLab commands.
 
-- local hardware master  
-- RISC‑V master  
-- remote master (RCP)  
-- DMA master  
-- parser master (software)  
+Examples:
 
-### Possible arbitration strategies
+```text
+READ
+WRITE
+CHECK
 
-- priority‑based  
-- round‑robin  
-- event‑driven  
-- atomic locking  
-- QoS‑based  
+BURST_READ
+BURST_WRITE
 
-No strategy is fixed; the arbiter will evolve as needed.
+WRAP_READ
+WRAP_WRITE
 
----
+FIFO_READ
+FIFO_WRITE
 
-# 6. Master API (Open Specification)
+POLL_READ
+POLL_TOGGLE
+```
 
-The master will always generate commands through:
+Command generation may be triggered by:
 
-t_cmd_out → arbiter → backend → bus
-
-Codice
-
-But the *way* commands are generated is intentionally open:
-
-- interrupt‑driven  
-- polling  
-- scheduled  
-- firmware‑driven  
-- remote‑driven  
-- protocol‑driven  
-- state‑machine‑driven  
-- AI‑driven (future possibility)  
-
-The API is stable; the behavior is flexible.
+- Peripherals
+- Interrupts
+- DMA completion
+- External events
+- Firmware requests
+- Application-specific logic
 
 ---
 
-# 7. Design Philosophy
+# 4. Locked Execution Support
 
-The master is designed with these principles:
+Future master implementations may support protected command sequences through:
 
-### ✔ Open‑ended  
-No fixed protocol, no fixed FSM, no fixed peripheral set.
+```text
+cmd_lock
+```
 
-### ✔ Modular  
-Each peripheral or subsystem can define its own master behavior.
+Examples:
 
-### ✔ Scalable  
-From a single SPI device to a distributed industrial network.
+```text
+SET_ATOMIC
+    ->
+cmd_lock
+    ->
+arbiter ownership retention
+```
 
-### ✔ Replaceable  
-Different master implementations can coexist or be swapped.
+Potential use cases include:
 
-### ✔ Evolvable  
-New generations of masters can be added without breaking old ones.
+- Critical peripheral configuration
+- Multi-step initialization
+- Atomic register updates
+- Protected memory accesses
 
-### ✔ Non‑intrusive  
-The master never forces architectural constraints on the system.
+Ownership protection is implemented by the arbiter rather than by the backend.
 
 ---
 
-# 8. Summary
+# 5. Mid-Term Evolution (RISC-V Integration)
 
-The DexterLab Hardware Command Master is:
+DexterLab already defines a path for integration with RISC-V systems.
 
-- **minimal today**  
-- **expandable tomorrow**  
-- **multi‑peripheral later**  
-- **RISC‑V compatible in the future**  
-- **Ethernet/T1S/RCP capable in the long term**  
-- **multi‑master in advanced deployments**  
-- **always open‑ended**  
+Relevant infrastructure includes:
 
-This roadmap intentionally leaves all implementation paths open, allowing
-DexterLab to grow organically as new peripherals, protocols, and systems are
-introduced.
+```text
+TileLink Bridge
+Arbiter
+Backend Layer
+```
+
+Potential future use cases:
+
+- Firmware-generated commands
+- DMA-driven command generation
+- Hardware-accelerated command pipelines
+- Software/hardware cooperative control
+
+Possible command sources:
+
+```text
+RISC-V Core
+DMA Engine
+Peripheral Controller
+Custom Accelerator
+```
+
+All remain compatible with the common DexterLab interfaces.
+
+---
+
+# 6. TileLink Integration
+
+The TileLink Bridge already provides a path from:
+
+```text
+TileLink
+        |
+        v
+    t_cmd_out
+```
+
+allowing future RISC-V based systems to interact with DexterLab.
+
+Potential future enhancements include:
+
+- Firmware command libraries
+- Command batching
+- DMA-generated bursts
+- Remote firmware debugging
+- Runtime scripting
+
+Further details are documented in:
+
+```text
+tilelink_bridge.md
+```
+
+---
+
+# 7. Long-Term Evolution
+
+Future deployments may extend beyond local devices.
+
+Potential areas include:
+
+- Network-attached systems
+- Distributed instrumentation
+- Remote command execution
+- Remote diagnostics
+- Multi-node command infrastructures
+
+Possible transport layers:
+
+- Ethernet
+- Industrial Ethernet
+- 10BASE-T1S
+- Custom serial links
+- Remote Control Protocols (RCP)
+
+These directions remain exploratory and intentionally unspecified.
+
+---
+
+# 8. Multi-Master Architectures
+
+Future DexterLab systems may include multiple concurrent command sources.
+
+Examples:
+
+```text
+Parser Engine
+Hardware Master
+RISC-V Master
+DMA Master
+Remote Master
+Acceleration Engine
+```
+
+The current arbiter already provides the foundations for this model through:
+
+- Ownership tracking
+- Pending command retention
+- Response routing
+- Locked command sequences
+
+Future arbitration strategies may include:
+
+- Fixed priority
+- Round robin
+- Event-driven scheduling
+- QoS-based scheduling
+- Hybrid schemes
+
+No particular strategy is currently mandated.
+
+---
+
+# 9. Standard Master Interfaces
+
+The master architecture is expected to preserve the standard DexterLab interfaces.
+
+Command generation:
+
+```text
+t_cmd_out
+```
+
+Response flow control:
+
+```text
+t_rsp_out
+```
+
+Response reception:
+
+```text
+t_rsp_in
+```
+
+These interfaces form the stable API between all current and future command generators and the rest of the system.
+
+---
+
+# 10. Possible Generation Models
+
+Future master implementations may be:
+
+### Interrupt Driven
+
+```text
+Interrupt
+    ->
+Command Generation
+```
+
+---
+
+### Polling Driven
+
+```text
+Periodic Check
+    ->
+Command Generation
+```
+
+---
+
+### Scheduled
+
+```text
+Time/Event Schedule
+    ->
+Command Generation
+```
+
+---
+
+### Firmware Driven
+
+```text
+Software
+    ->
+Command Generation
+```
+
+---
+
+### Remote Driven
+
+```text
+Network Event
+    ->
+Command Generation
+```
+
+---
+
+### State-Machine Driven
+
+```text
+FSM
+    ->
+Command Generation
+```
+
+The command interfaces remain stable regardless of the generation method.
+
+---
+
+# 11. Design Philosophy
+
+The master architecture follows several long-term principles.
+
+### Open-Ended
+
+The design should not constrain future integrations.
+
+---
+
+### Modular
+
+Different master implementations may coexist.
+
+---
+
+### Scalable
+
+The same architecture should support:
+
+```text
+Single Peripheral
+        ->
+Multiple SoCs
+        ->
+Distributed Systems
+```
+
+---
+
+### Replaceable
+
+Implementations can evolve without changing backend interfaces.
+
+---
+
+### Extensible
+
+New command-generation sources can be introduced at any time.
+
+---
+
+### Backend Independent
+
+Masters generate commands.
+
+Backends execute commands.
+
+The two responsibilities remain separated.
+
+---
+
+# 12. Summary
+
+The DexterLab Hardware Command Master is currently a lightweight placeholder implementation designed to validate system integration.
+
+Future generations may evolve into:
+
+- Event-driven controllers
+- Peripheral supervisors
+- RISC-V command generators
+- DMA engines
+- Network-aware masters
+- Multi-master infrastructures
+
+The stable foundation remains:
+
+```text
+t_cmd_out
+t_rsp_out
+t_rsp_in
+```
+
+combined with:
+
+```text
+Arbiter
+Backend Layer
+Unified Command Architecture
+```
+
+This approach allows DexterLab to grow from a simple parser-driven environment into a flexible command-execution framework spanning local devices, processors, accelerators, and distributed systems.
 
 ---
 

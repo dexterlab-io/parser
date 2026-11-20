@@ -1,238 +1,506 @@
 # DexterLab Command Configuration Package (`cmd_cfg.vhd`)
 
-This document describes the configuration constants and base types defined in
-`cmd_cfg.vhd`.  
-These parameters control the global behavior of the DexterLab Command Parser,
-the backend executors, and the simulation environment.
+This document describes the configuration constants, identifiers, and base types defined in `cmd_cfg.vhd`.
 
-The package is intentionally simple, stable, and backend‑agnostic.  
-All modules (parser, arbiter, AXI/AHB executors, FIFO models, dump/check logic)
-depend on these constants.
+The package provides the global configuration layer used by the DexterLab ecosystem, including:
+
+- Parser Engine
+- Arbiter
+- Backend Executors
+- FIFO Models
+- Memory Models
+- Dump/Check Infrastructure
+- Simulation Environment
+
+All major modules depend on the definitions provided by this package.
 
 ---
 
-# 1. Logging Configuration
+# 1. Purpose
+
+`cmd_cfg.vhd` centralizes global configuration parameters to ensure consistent behavior across the entire system.
+
+The package defines:
+
+- Address and data widths
+- Parser limits
+- Buffer sizes
+- Timeout values
+- Include limits
+- Atomic execution limits
+- Command source identifiers
+- Fundamental data types
+
+This approach allows system-wide customization from a single location.
+
+---
+
+# 2. Logging Configuration
+
+## Debug Logging
 
 ```vhdl
 constant ENABLE_DEBUG_LOG : boolean := false;
-Description
-Controls whether debug messages (severity note) are printed during simulation.
+```
 
-false → silent mode (recommended for regression runs)
+### Description
 
-true → verbose mode (useful for debugging parser behavior)
+Controls emission of debug-level simulation messages.
 
-Warnings, errors, and fatal messages are always enabled.
+| Value | Behavior |
+|---------|----------|
+| `false` | Silent mode |
+| `true` | Debug messages enabled |
 
-2. Base Configuration
-vhdl
+### Notes
+
+Debug messages are typically generated using:
+
+```vhdl
+report "...";
+```
+
+with:
+
+```vhdl
+severity note;
+```
+
+Warnings, errors, and fatal messages remain active regardless of this setting.
+
+### Typical Usage
+
+Regression runs:
+
+```vhdl
+ENABLE_DEBUG_LOG := false;
+```
+
+Debug sessions:
+
+```vhdl
+ENABLE_DEBUG_LOG := true;
+```
+
+---
+
+# 3. Fundamental System Configuration
+
+## Address Width
+
+```vhdl
 constant C_ADDR_WIDTH : natural := 32;
-constant C_DATA_WIDTH : natural := 32;
-Description
+```
+
 Defines the width of:
 
-addresses (t_addr)
+```text
+t_addr
+cmd_addr
+rsp_err_addr
+```
 
-data words (t_data)
+Current configuration:
 
-These values propagate through:
+```text
+32 bits
+```
 
-parser engine
+---
 
-arbiter
+## Data Width
 
-AXI/AHB executors
+```vhdl
+constant C_DATA_WIDTH : natural := 32;
+```
 
-dump/fill/check logic
+Defines the width of:
 
-FIFO models
+```text
+t_data
+rsp_data
+cmd_data
+```
 
-3. Data Token Configuration
-vhdl
-constant C_MAX_DATA_TOKENS    : natural := 1024;
-constant C_MAX_DATA_PER_LINE  : natural := 8;
-Description
-C_MAX_DATA_TOKENS
-Maximum number of data tokens that a single micro‑command can contain.
+Current configuration:
 
-From the source code:
+```text
+32 bits
+```
 
-“Il burst logico può essere > C_MAX_DATA_TOKENS (es. 1024),
-ma verrà spezzato in più micro‑burst in cmd_cmd_pkg.”
+---
 
-Meaning:
+# 4. Data Token Configuration
 
-A command like BURST_WRITE len=4096 is allowed.
+## Maximum Data Tokens
 
-The parser splits it into multiple micro‑bursts of max 1024 tokens.
+```vhdl
+constant C_MAX_DATA_TOKENS : natural := 1024;
+```
 
-C_MAX_DATA_PER_LINE
-Maximum number of data tokens allowed per line in the command file.
+Defines the maximum number of data words stored in a single micro-command.
+
+### Purpose
+
+Very large logical operations are automatically split into multiple micro-commands.
 
 Example:
 
-Codice
-BURST_WRITE BASE_RAM 16 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08
-If more than 8 tokens are present, the parser continues reading the next line.
+```text
+BURST_WRITE length = 4096
+```
 
-4. Micro‑Command Buffer Configuration
-vhdl
+may be internally translated into several smaller micro-bursts.
+
+### Current Value
+
+```text
+1024 data words
+```
+
+---
+
+## Maximum Data Tokens Per Line
+
+```vhdl
+constant C_MAX_DATA_PER_LINE : natural := 8;
+```
+
+Defines how many data tokens may appear on a single line of a command file before continuation lines are required.
+
+### Example
+
+```text
+BURST_WRITE 16 0x1000
+    0x01 0x02 0x03 0x04
+    0x05 0x06 0x07 0x08
+```
+
+---
+
+# 5. Micro-Command Buffer Configuration
+
+## Maximum Micro-Commands
+
+```vhdl
 constant C_MAX_MC : natural := 64;
-Description
-Maximum number of micro‑commands generated from a single command line.
+```
 
-From the source code:
+Defines the size of the micro-command expansion buffer.
 
-“Una singola riga (anche con burst grandi) non genera mai più di qualche decina di microcomandi; 64 è un valore ampiamente sufficiente.”
+### Purpose
 
-Used internally by the parser engine to store:
+Used when a logical command is split into multiple executable commands.
 
-split bursts
+Typical examples:
 
-split wrap bursts
+- Large bursts
+- Large wrap operations
+- Fill operations
+- Dump operations
 
-split FIFO operations
+### Current Value
 
-split fill/dump ranges
+```text
+64 micro-commands
+```
 
-5. Timeout Configuration
-vhdl
+---
+
+# 6. Timeout Configuration
+
+## Generic Timeout
+
+```vhdl
 constant C_MAX_TIMEOUT : natural := 1024;
+```
+
+Used by parser-level functionality including:
+
+- WAIT operations
+- POLL operations
+
+### Current Value
+
+```text
+1024 internal units
+```
+
+---
+
+## Backend Timeout
+
+```vhdl
 constant C_MAX_AXI_TIMEOUT : integer := 1024;
-Description
-Used by:
+```
 
-POLL_READ
+Used by backend timeout detection logic.
 
-POLL_TOGGLE
+Applies primarily to:
 
-POLL_PING
+- AXI-FULL
+- AXI-LITE
 
-WAIT_CLOCKS
+and any future backend implementing timeout monitoring.
 
-AXI timeout logic inside backend executors
+### Current Value
 
-Defines the maximum number of internal cycles before a timeout error is raised.
+```text
+1024 cycles
+```
 
-6. Derived Constants
-vhdl
-constant C_MAX_STRING        : natural := 256;
+---
+
+# 7. Derived Configuration Constants
+
+## Maximum String Length
+
+```vhdl
+constant C_MAX_STRING : natural := 256;
+```
+
+Defines the maximum length of:
+
+```text
+Command lines
+File names
+Print strings
+Variable names
+```
+
+---
+
+## Include Depth
+
+```vhdl
 constant C_MAX_INCLUDE_DEPTH : natural := 16;
+```
 
-constant C_ID_WIDTH   : natural := 4;
+Limits recursive file inclusion.
+
+### Example
+
+```text
+A.cmd
+  includes B.cmd
+
+B.cmd
+  includes C.cmd
+
+...
+```
+
+Maximum nesting depth:
+
+```text
+16 files
+```
+
+---
+
+## Command ID Width
+
+```vhdl
+constant C_ID_WIDTH : natural := 4;
+```
+
+Defines the width of:
+
+```text
+cmd_id
+rsp_id
+rsp_err_id
+```
+
+### Current Range
+
+```text
+0 .. 15
+```
+
+---
+
+## Atomic Command Limit
+
+```vhdl
 constant C_MAX_ATOMIC : natural := 16;
+```
 
+Defines the maximum number of commands that may participate in an atomic execution sequence.
+
+Associated with:
+
+```text
+SET_ATOMIC
+```
+
+and arbiter ownership locking.
+
+---
+
+## Internal Package Widths
+
+```vhdl
 constant C_CFG_WIDTH : integer := 8;
 constant C_PKG_WIDTH : integer := 16;
-Description
-C_MAX_STRING
-Maximum length of a command line (256 characters).
+```
 
-C_MAX_INCLUDE_DEPTH
-Maximum nesting depth for INCLUDE commands.
+Internal configuration constants used by parser infrastructure.
 
-Example:
+These values are intended for framework internals and normally should not be modified.
 
-Codice
-A includes B
-B includes C
-C includes D
-...
-Depth > 16 triggers an error.
+---
 
-C_ID_WIDTH
-Width of command IDs (cmd_id and rsp_id).
+# 8. Command Source Identifiers
 
-Used for correlating responses to commands.
+The system distinguishes between command sources using unique identifiers.
 
-C_MAX_ATOMIC
-Maximum number of commands allowed inside an atomic block.
+## Parser Source
 
-Atomic mode is controlled by:
+```vhdl
+constant ID_PARSER :=
+    to_unsigned(0, C_ID_WIDTH);
+```
 
-Codice
-SET_ATOMIC 1
-...
-SET_ATOMIC 0
-C_CFG_WIDTH / C_PKG_WIDTH
-Internal configuration widths used by:
+### Purpose
 
-parser engine
+Identifies commands generated by:
 
-command package
+```text
+Parser Engine
+```
 
-backend executors
+---
 
-These values are not meant to be modified.
+## Master Source
 
-7. Command Source IDs
-vhdl
-constant ID_PARSER : unsigned(C_ID_WIDTH-1 downto 0) := to_unsigned(0, C_ID_WIDTH);
-constant ID_MASTER : unsigned(C_ID_WIDTH-1 downto 0) := to_unsigned(1, C_ID_WIDTH);
-Description
-Used by the arbiter to tag commands based on their origin:
+```vhdl
+constant ID_MASTER :=
+    to_unsigned(1, C_ID_WIDTH);
+```
 
-ID_PARSER → commands from the text parser
+### Purpose
 
-ID_MASTER → commands from the hardware master (future RISC‑V)
+Identifies commands generated by:
 
-These IDs appear in:
+```text
+Hardware Master
+```
 
-cmd_id
+Examples:
 
-rsp_id
+- RISC-V CPU
+- DMA Engine
+- FPGA Command Generator
 
-rsp_err_id
+---
 
-8. Base Types
-vhdl
-subtype t_addr is std_logic_vector(C_ADDR_WIDTH-1 downto 0);
-subtype t_data is std_logic_vector(C_DATA_WIDTH-1 downto 0);
+# 9. Base Data Types
 
+## Address Type
+
+```vhdl
+subtype t_addr is
+    std_logic_vector(C_ADDR_WIDTH-1 downto 0);
+```
+
+Current width:
+
+```text
+32 bits
+```
+
+Used throughout the system wherever addresses are required.
+
+---
+
+## Data Type
+
+```vhdl
+subtype t_data is
+    std_logic_vector(C_DATA_WIDTH-1 downto 0);
+```
+
+Current width:
+
+```text
+32 bits
+```
+
+Used by:
+
+- WRITE
+- FIFO_WRITE
+- BURST_WRITE
+- WRAP_WRITE
+- FILL operations
+- Read responses
+
+---
+
+## Text Line Type
+
+```vhdl
 type t_line is array(1 to C_MAX_STRING) of character;
-Description
-t_addr
-Address type used by all commands.
+```
 
-t_data
-Data type used for:
+Used internally by the parser for:
 
-WRITE
+- Command storage
+- File parsing
+- Variable processing
+- String manipulation
 
-FIFO_WRITE
+Maximum length:
 
-BURST_WRITE
+```text
+256 characters
+```
 
-WRAP_WRITE
+---
 
-FILL_LEN
+# 10. Design Philosophy
 
-FILL_RANGE
+The configuration package is intentionally:
 
-t_line
-Internal buffer used by the parser to store a full command line.
+- Centralized
+- Lightweight
+- Protocol-independent
+- Stable across releases
 
-9. Summary
-cmd_cfg.vhd defines:
+The package contains only global settings required throughout the framework.
 
-global configuration parameters
+Bus-specific behavior belongs to:
 
-parser limits
+```text
+backend_axi_full
+backend_axi_lite
+backend_ahb_full
+backend_ahb_lite
+```
 
-burst splitting limits
+and not to `cmd_cfg.vhd`.
 
-timeout values
+---
 
-atomic mode limits
+# 11. Summary
 
-include depth
+`cmd_cfg.vhd` defines the global configuration used by the entire DexterLab ecosystem.
 
-base types
+It provides:
 
-command source IDs
+- Logging controls
+- Address and data widths
+- Parser limits
+- Micro-command limits
+- Timeout parameters
+- Include limits
+- Atomic execution limits
+- Source identifiers
+- Core data types
 
-These constants ensure consistent behavior across all DexterLab modules and
-provide a stable foundation for both simulation and future synthesizable
-versions.
+These definitions form the common foundation shared by the parser, arbiter, backends, simulation infrastructure, and future command-generation masters.
 
-End of Document
+---
+
+# End of Document

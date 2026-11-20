@@ -1,292 +1,811 @@
-markdown
 # DexterLab Command Parser — Command Set
 
-This document describes all commands supported by the DexterLab Command Parser.
-It combines formal specification, practical examples, and visual diagrams to
-clarify the semantics of each command category.
+This document defines the complete command set supported by the DexterLab Command Parser.
 
-The command set is backend‑agnostic: every slave (Generic, AXI, AHB) receives the
-same `t_cmd_out` structure and executes the command according to its own bus
-semantics.
+The command language is protocol-independent and is converted into a unified command interface (`t_cmd_out`) before execution by the selected backend.
+
+Supported execution targets include:
+
+- Generic Backend
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
+- Future protocol integrations
 
 ---
 
-# 1. Command Enumeration
+# 1. Command Categories
 
-The parser supports the following commands:
+The command set is divided into the following categories:
 
+| Category | Purpose |
+|-----------|----------|
+| Configuration | Variables and parser configuration |
+| File Control | Include external command files |
+| Timing | Simulation delays and waits |
+| Basic Memory Access | READ, WRITE, CHECK |
+| WSTRB Access | Partial writes |
+| FIFO Operations | FIFO-oriented transfers |
+| Burst Operations | Multi-beat incrementing transfers |
+| Wrap Operations | Wrapping burst transfers |
+| Fill Operations | Pattern generation |
+| Poll Operations | Status polling |
+| Dump Operations | Memory export and verification |
+| Error Injection | Backend error testing |
+| Simulation Control | STOP and END_SIM |
+
+---
+
+# 2. Command Enumeration
+
+The parser currently supports:
+
+```text
 CMD_NOP
+
 CMD_SET_VAR
 CMD_INCLUDE
 CMD_PRINT
 CMD_END_SIM
+
 CMD_SET_ATOMIC
+
 CMD_WAIT_TIME
 CMD_WAIT_CLOCKS
 CMD_WAIT_SIM_TIME
+
 CMD_WSTRB_WRITE
+
 CMD_WRITE
 CMD_READ
 CMD_CHECK
+
 CMD_FIFO_WRITE
 CMD_FIFO_READ
 CMD_FIFO_CHECK
+
 CMD_BURST_WRITE
 CMD_BURST_READ
 CMD_BURST_CHECK
+
 CMD_WRAP_WRITE
 CMD_WRAP_READ
 CMD_WRAP_CHECK
+
 CMD_FILL_LEN
 CMD_FILL_RANGE
 CMD_FILL_CHECK
+
 CMD_POLL_READ
 CMD_POLL_TOGGLE
-CMD_POLL_PING
+
+CMD_TEST_ERROR
+
 CMD_DUMP_LEN
 CMD_DUMP_RANGE
 CMD_DUMP_FILE_LEN
 CMD_DUMP_FILE_RANGE
 CMD_DUMP_FILE_CHECK_LEN
 CMD_DUMP_FILE_CHECK_RANGE
-CMD_STOP
-CMD_UNKNOWN
 
-Codice
+CMD_STOP
+
+CMD_UNKNOWN
+```
 
 ---
 
-# 2. INCLUDE
+# 3. Configuration Commands
+
+## SET_VAR
+
+Assigns a parser variable.
 
 ### Syntax
-INCLUDE <filename>
 
-Codice
-
-### Description
-Loads and executes another command file.
+```text
+SET_VAR <name> <value>
+```
 
 ### Example
-INCLUDE init_vars.txt
 
-Codice
+```text
+SET_VAR BASE_RAM 0x1000
+```
 
----
+### Purpose
 
-# 3. WAIT Commands
-
-## 3.1 WAIT_CLOCKS
-WAIT_CLOCKS <N>
-
-Codice
-
-## 3.2 WAIT_TIME
-WAIT_TIME <time>
-
-Codice
-
-## 3.3 WAIT_SIM_TIME
-WAIT_SIM_TIME <time>
-
-Codice
+Variables may later be used in expressions and addresses.
 
 ---
 
-# 4. SET_ATOMIC
+## SET_ATOMIC
+
+Controls arbiter atomic locking.
 
 ### Syntax
+
+```text
 SET_ATOMIC <0|1>
+```
 
-Codice
+### Examples
 
-### Diagram
-```mermaid
-flowchart LR
-    A[SET_ATOMIC 1] --> B[Atomic Mode Enabled]
-    B --> C[Commands Execute Sequentially]
-    C --> D[No Interleaving Allowed]
-    D --> E[SET_ATOMIC 0]
-    E --> F[Atomic Mode Disabled]
-5. WSTRB_WRITE
-Syntax
-Codice
-WSTRB_WRITE <addr> <wstrb>
-Example
-Codice
-WSTRB_WRITE BASE_RAM + 0x98 0b0001
-Diagram
-mermaid
-flowchart LR
-    A[WSTRB_WRITE] --> B{WSTRB bit 0?}
-    B -->|Yes| C[Write lane 0]
-    B -->|No| D[Skip lane 0]
-    A --> E{WSTRB bit 1?}
-    E -->|Yes| F[Write lane 1]
-    E -->|No| G[Skip lane 1]
-    A --> H{WSTRB bit 2?}
-    H -->|Yes| I[Write lane 2]
-    H -->|No| J[Skip lane 2]
-    A --> K{WSTRB bit 3?}
-    K -->|Yes| L[Write lane 3]
-    K -->|No| M[Skip lane 3]
-6. WRITE / READ / CHECK
-6.1 WRITE
-Codice
+```text
+SET_ATOMIC 1
+```
+
+```text
+SET_ATOMIC 0
+```
+
+### Description
+
+When enabled:
+
+```text
+cmd_lock = 1
+```
+
+is propagated through generated commands.
+
+The arbiter prevents source switching until atomic mode is released.
+
+---
+
+# 4. File Commands
+
+## INCLUDE
+
+Loads and executes another command file.
+
+### Syntax
+
+```text
+INCLUDE <filename>
+```
+
+### Example
+
+```text
+INCLUDE init_memory.cmd
+```
+
+---
+
+# 5. Utility Commands
+
+## PRINT
+
+Writes a message to the log.
+
+### Syntax
+
+```text
+PRINT <text>
+```
+
+### Example
+
+```text
+PRINT Initialization completed
+```
+
+---
+
+# 6. Wait Commands
+
+These commands suspend execution without generating bus activity.
+
+---
+
+## WAIT_TIME
+
+### Syntax
+
+```text
+WAIT_TIME <value> <unit>
+```
+
+### Examples
+
+```text
+WAIT_TIME 100 ns
+```
+
+```text
+WAIT_TIME 10 us
+```
+
+---
+
+## WAIT_CLOCKS
+
+### Syntax
+
+```text
+WAIT_CLOCKS <count>
+```
+
+### Example
+
+```text
+WAIT_CLOCKS 100
+```
+
+---
+
+## WAIT_SIM_TIME
+
+### Syntax
+
+```text
+WAIT_SIM_TIME <value>
+```
+
+### Example
+
+```text
+WAIT_SIM_TIME 500
+```
+
+---
+
+# 7. Basic Memory Commands
+
+## WRITE
+
+Writes one data word.
+
+### Syntax
+
+```text
 WRITE <addr> <data>
-6.2 READ
-Codice
+```
+
+### Example
+
+```text
+WRITE 0x1000 0x12345678
+```
+
+---
+
+## READ
+
+Reads one data word.
+
+### Syntax
+
+```text
 READ <addr>
-6.3 CHECK
-Codice
+```
+
+### Example
+
+```text
+READ 0x1000
+```
+
+---
+
+## CHECK
+
+Reads and compares against an expected value.
+
+### Syntax
+
+```text
 CHECK <addr> <expected>
-7. FIFO Commands
-7.1 FIFO_WRITE
-Codice
-FIFO_WRITE <addr> <len> <data...>
-Diagram
-mermaid
-flowchart TD
-    A[FIFO_WRITE] --> B[Push Data]
-    B --> C[FIFO Memory]
-7.2 FIFO_READ
-Codice
+```
+
+### Example
+
+```text
+CHECK 0x1000 0x12345678
+```
+
+---
+
+# 8. WSTRB_WRITE
+
+Performs a write using an explicit write strobe mask.
+
+### Syntax
+
+```text
+WSTRB_WRITE <addr> <data> <wstrb>
+```
+
+### Example
+
+```text
+WSTRB_WRITE 0x1000 0xAABBCCDD 0x1
+```
+
+### Purpose
+
+Allows validation of byte-enable behavior.
+
+Used primarily by:
+
+- AXI-FULL
+- AXI-LITE
+
+---
+
+# 9. FIFO Commands
+
+## FIFO_WRITE
+
+### Syntax
+
+```text
+FIFO_WRITE <addr> <len> <data>
+```
+
+### Example
+
+```text
+FIFO_WRITE 0x3000 8 0x55
+```
+
+Writes multiple entries into a FIFO.
+
+---
+
+## FIFO_READ
+
+### Syntax
+
+```text
 FIFO_READ <addr> <len>
-Diagram
-mermaid
-flowchart TD
-    A[FIFO Memory] --> B[Pop Data]
-    B --> C[FIFO_READ]
-7.3 FIFO_CHECK
-Codice
-FIFO_CHECK <addr> <len> <expected...>
-8. BURST Commands
-8.1 BURST_WRITE
-Codice
-BURST_WRITE <addr> <len> <data...>
-Diagram
-mermaid
-sequenceDiagram
-    participant P as Parser
-    participant S as Slave
-    P->>S: BURST_WRITE addr, len=4
-    Note right of S: INCR burst<br/>addr+0<br/>addr+4<br/>addr+8<br/>addr+12
-    S->>P: rsp_valid (4 beats)
-    S->>P: rsp_last
-8.2 BURST_READ
-Codice
-BURST_READ <addr> <len>
-8.3 BURST_CHECK
-Codice
-BURST_CHECK <addr> <len> <expected...>
-9. WRAP Commands
-9.1 WRAP_WRITE
-Codice
-WRAP_WRITE <addr> <len> <data...>
-Diagram
-mermaid
-flowchart LR
-    A[Start Address] --> B[addr + 0]
-    B --> C[addr + 4]
-    C --> D[addr + 8]
-    D --> E[addr + 12]
-    E --> F[Wrap to base]
-9.2 WRAP_READ
-Codice
-WRAP_READ <addr> <len>
-9.3 WRAP_CHECK
-Codice
-WRAP_CHECK <addr> <len> <expected...>
-10. FILL Commands
-10.1 FILL_LEN
-Codice
+```
+
+### Example
+
+```text
+FIFO_READ 0x3100 8
+```
+
+Reads multiple FIFO entries.
+
+---
+
+## FIFO_CHECK
+
+### Syntax
+
+```text
+FIFO_CHECK <addr> <len> <expected>
+```
+
+### Example
+
+```text
+FIFO_CHECK 0x3100 8 0x55
+```
+
+Reads and verifies FIFO contents.
+
+---
+
+# 10. Burst Commands
+
+Burst commands generate incrementing multi-beat transfers.
+
+---
+
+## BURST_WRITE
+
+### Syntax
+
+```text
+BURST_WRITE <len> <addr> <data...>
+```
+
+### Example
+
+```text
+BURST_WRITE 4 0x1000
+    0x01
+    0x02
+    0x03
+    0x04
+```
+
+---
+
+## BURST_READ
+
+### Syntax
+
+```text
+BURST_READ <len> <addr>
+```
+
+### Example
+
+```text
+BURST_READ 16 0x1000
+```
+
+---
+
+## BURST_CHECK
+
+### Syntax
+
+```text
+BURST_CHECK <len> <addr> <expected...>
+```
+
+### Example
+
+```text
+BURST_CHECK 4 0x1000
+```
+
+---
+
+# 11. Wrap Commands
+
+Wrap commands use wrapping address generation.
+
+---
+
+## WRAP_WRITE
+
+### Syntax
+
+```text
+WRAP_WRITE <wrap_size> <addr> <data...>
+```
+
+### Example
+
+```text
+WRAP_WRITE 8 0x2000
+```
+
+---
+
+## WRAP_READ
+
+### Syntax
+
+```text
+WRAP_READ <wrap_size> <addr>
+```
+
+### Example
+
+```text
+WRAP_READ 8 0x2000
+```
+
+---
+
+## WRAP_CHECK
+
+### Syntax
+
+```text
+WRAP_CHECK <wrap_size> <addr> <expected...>
+```
+
+### Example
+
+```text
+WRAP_CHECK 8 0x2000
+```
+
+---
+
+# 12. Fill Commands
+
+Fill commands repeatedly write a pattern.
+
+---
+
+## FILL_LEN
+
+### Syntax
+
+```text
 FILL_LEN <addr> <len> <pattern>
-Diagram
-mermaid
-flowchart TD
-    A[FILL_LEN] --> B[Repeat pattern]
-    B --> C[Write len words]
-10.2 FILL_RANGE
-Codice
-FILL_RANGE <addr_start> <addr_end> <pattern>
-Diagram
-mermaid
-flowchart TD
-    A[FILL_RANGE] --> B[Compute length]
-    B --> C{len > 256?}
-    C -->|Yes| D[Split into bursts]
-    C -->|No| E[Single burst]
-10.3 FILL_CHECK
-Codice
+```
+
+### Example
+
+```text
+FILL_LEN 0x1000 1024 0xDEADBEEF
+```
+
+---
+
+## FILL_RANGE
+
+### Syntax
+
+```text
+FILL_RANGE <start_addr> <end_addr> <pattern>
+```
+
+### Example
+
+```text
+FILL_RANGE 0x1000 0x1FFF 0xAAAAAAAA
+```
+
+---
+
+## FILL_CHECK
+
+### Syntax
+
+```text
 FILL_CHECK <addr> <len> <pattern>
-11. DUMP Commands
-11.1 DUMP_LEN
-Codice
-DUMP_LEN <addr> <len>
-11.2 DUMP_RANGE
-Codice
-DUMP_RANGE <addr_start> <addr_end>
-11.3 DUMP_FILE_LEN / RANGE
-Diagram
-mermaid
-flowchart TD
-    A[DUMP_FILE_LEN] --> B[Read Memory]
-    B --> C[Format Hex Lines]
-    C --> D[Write File]
-11.4 DUMP_FILE_CHECK_LEN / RANGE
-Diagram
-mermaid
-flowchart TD
-    A[Read Memory] --> B[Load File]
-    B --> C[Compare Lines]
-    C --> D{Match?}
-    D -->|Yes| E[OK]
-    D -->|No| F[Error]
-12. POLL Commands
-12.1 POLL_READ
-Codice
+```
+
+### Example
+
+```text
+FILL_CHECK 0x1000 1024 0xDEADBEEF
+```
+
+---
+
+# 13. Poll Commands
+
+Poll commands repeatedly read until a condition is satisfied.
+
+---
+
+## POLL_READ
+
+### Syntax
+
+```text
 POLL_READ <addr> <mask> <value> <attempts> <delay>
-Diagram
-mermaid
-flowchart TD
-    A[Start Poll] --> B[Read Address]
-    B --> C{(data & mask) == value?}
-    C -->|Yes| D[Success]
-    C -->|No| E[Wait delay]
-    E --> F{Attempts left?}
-    F -->|Yes| B
-    F -->|No| G[Timeout]
-12.2 POLL_TOGGLE
-Codice
+```
+
+### Example
+
+```text
+POLL_READ 0x4000 0x1 0x1 100 10
+```
+
+Condition:
+
+```text
+(read_value & mask) = value
+```
+
+---
+
+## POLL_TOGGLE
+
+### Syntax
+
+```text
 POLL_TOGGLE <addr> <mask> <attempts> <delay>
-12.3 POLL_PING
-Codice
-POLL_PING <addr> <attempts> <delay>
-13. STOP / END_SIM
-Codice
+```
+
+### Example
+
+```text
+POLL_TOGGLE 0x4000 0x1 100 10
+```
+
+Waits for the selected bits to change state.
+
+---
+
+# 14. Dump Commands
+
+Dump commands read memory and optionally export or verify contents.
+
+---
+
+## DUMP_LEN
+
+### Syntax
+
+```text
+DUMP_LEN <addr> <len>
+```
+
+---
+
+## DUMP_RANGE
+
+### Syntax
+
+```text
+DUMP_RANGE <start_addr> <end_addr>
+```
+
+---
+
+## DUMP_FILE_LEN
+
+### Syntax
+
+```text
+DUMP_FILE_LEN <addr> <len> <filename>
+```
+
+---
+
+## DUMP_FILE_RANGE
+
+### Syntax
+
+```text
+DUMP_FILE_RANGE <start_addr> <end_addr> <filename>
+```
+
+---
+
+## DUMP_FILE_CHECK_LEN
+
+### Syntax
+
+```text
+DUMP_FILE_CHECK_LEN <addr> <len> <filename>
+```
+
+---
+
+## DUMP_FILE_CHECK_RANGE
+
+### Syntax
+
+```text
+DUMP_FILE_CHECK_RANGE <start_addr> <end_addr> <filename>
+```
+
+---
+
+# 15. Error Injection
+
+## TEST_ERROR
+
+Injects a backend error condition.
+
+### Syntax
+
+```text
+TEST_ERROR <addr> <error_code>
+```
+
+### Example
+
+```text
+TEST_ERROR 0x1000 54
+```
+
+Example:
+
+```text
+54 = AHB_LITE BOUNDARY_ERR
+```
+
+Used for:
+
+- Regression testing
+- Error-path validation
+- Backend verification
+
+---
+
+# 16. Simulation Control
+
+## STOP
+
+Stops command execution.
+
+### Syntax
+
+```text
 STOP
+```
+
+---
+
+## END_SIM
+
+Terminates simulation.
+
+### Syntax
+
+```text
 END_SIM
-14. UNKNOWN
-Any unrecognized command is mapped to:
+```
 
-Codice
+---
+
+# 17. Unknown Commands
+
+Unrecognized commands are mapped internally to:
+
+```text
 CMD_UNKNOWN
-15. Corner Cases
-15.1 Burst Splitting (len > 256)
-Burst 1024 → 4 bursts of 256
+```
 
-Boundary 4KB → additional split
+and reported as parser errors.
 
-15.2 Wrap Boundary
-Codice
-mask = len * 4 bytes
-addr = base + (offset % mask)
-15.3 FIFO Underflow
-Codice
-FIFO_READ len > available → error
-15.4 Dump File Mismatch
-Codice
-first mismatch stops comparison
-15.5 Polling Timeout
-Codice
-attempts exhausted → error
-End of Document
+---
+
+# 18. Common Rules
+
+## Alignment Requirements
+
+Commands accessing memory must satisfy alignment requirements appropriate for the configured data width.
+
+---
+
+## Burst Limits
+
+Backend implementations may split large operations internally.
+
+Typical maximum burst size:
+
+```text
+256 beats
+```
+
+---
+
+## Wrap Operations
+
+Wrap size must satisfy protocol requirements.
+
+Typical values:
+
+```text
+2
+4
+8
+16
+```
+
+---
+
+## Atomic Mode
+
+Atomic execution is controlled through:
+
+```text
+SET_ATOMIC
+```
+
+and enforced by the arbiter.
+
+---
+
+# 19. Summary
+
+The DexterLab command language supports:
+
+- Configuration commands
+- File inclusion
+- Timing controls
+- Read/write operations
+- WSTRB accesses
+- FIFO operations
+- Burst transfers
+- Wrap transfers
+- Fill operations
+- Polling operations
+- Dump operations
+- Error injection
+- Simulation control
+
+All commands are converted into the protocol-independent `t_cmd_out` interface and executed through the selected backend.
+
+---
+
+# End of Document

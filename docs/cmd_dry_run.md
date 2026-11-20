@@ -1,190 +1,417 @@
 # DexterLab DRY_RUN Mode
-The DRY_RUN mode allows executing a `.cmd` file **without sending any command to
-the arbiter, wrapper, backend, or bus**.  
-It is a safe, non-intrusive validation mode used to check syntax, semantics, and
-command structure before running hardware operations.
 
-DRY_RUN is essential for debugging command files and verifying complex sequences
-without interacting with real devices.
+DRY_RUN mode allows validation of DexterLab command files without executing any backend transaction.
 
----
+It provides a safe verification environment that parses, validates, and displays command activity while preventing interaction with the execution infrastructure.
 
-# 1. Purpose of DRY_RUN
+DRY_RUN is intended for:
 
-DRY_RUN is designed to:
+- Command-file development
+- Regression testing
+- CI pipelines
+- Syntax verification
+- Semantic verification
+- Documentation validation
 
-- validate `.cmd` files,
-- detect syntax errors,
-- detect semantic errors,
-- print the commands that *would* be executed,
-- verify burst/wrap/FIFO structures,
-- verify CHECK commands,
-- verify atomic blocks,
-- ensure correct formatting,
-- avoid any hardware side-effects.
-
-No hardware command is generated.
+No backend activity occurs while DRY_RUN is enabled.
 
 ---
 
-# 2. What DRY_RUN Does
+# 1. Purpose
 
-When enabled, DRY_RUN:
+DRY_RUN mode is designed to:
 
-1. parses the `.cmd` file,
-2. validates syntax,
-3. validates semantics,
-4. builds the internal command structure,
-5. prints each command in human-readable form,
-6. stops on errors,
-7. **does not assert `cmd_valid`**,
-8. **does not interact with the arbiter**,
-9. **does not interact with the backend**,
-10. **does not generate bus transactions**.
+- Validate command files
+- Detect parser errors
+- Detect semantic errors
+- Verify command structure
+- Verify variable expansion
+- Verify include chains
+- Verify burst definitions
+- Verify wrap definitions
+- Verify FIFO operations
+- Verify polling commands
+- Verify dump commands
+- Verify atomic command sequences
 
-It is a pure software-only execution path.
-
----
-
-# 3. What DRY_RUN Does *Not* Do
-
-DRY_RUN does **not**:
-
-- send commands to hardware,
-- generate `t_cmd_out`,
-- wait for `cmd_ready`,
-- receive `t_rsp_in`,
-- perform READs,
-- perform WRITEs,
-- perform bursts,
-- perform wraps,
-- perform FIFO operations,
-- perform CHECK comparisons,
-- interact with AXI/AHB/TileLink.
-
-All hardware activity is disabled.
+The goal is to validate command correctness before enabling hardware execution.
 
 ---
 
-# 4. DRY_RUN Output Format
+# 2. Execution Model
 
-For each parsed command, DRY_RUN prints a normalized representation:
+When DRY_RUN is enabled, the parser executes only the front-end stages of the command pipeline.
+
+```text
+Command File
+      |
+Tokenizer
+      |
+Decoder
+      |
+Validation
+      |
+Micro-Command Generation
+      |
+DRY_RUN Output
+```
+
+Execution stops before commands are submitted to the arbiter.
+
+---
+
+# 3. What DRY_RUN Does
+
+For every command file, DRY_RUN performs:
+
+1. File loading
+2. Tokenization
+3. Command decoding
+4. Syntax validation
+5. Semantic validation
+6. Variable substitution
+7. Include expansion
+8. Micro-command generation
+9. Command normalization
+10. Human-readable output generation
+
+The parser therefore verifies the same command structures that would be used during a real execution.
+
+---
+
+# 4. What DRY_RUN Does Not Do
+
+DRY_RUN does not:
+
+- Submit commands to the arbiter
+- Execute backend operations
+- Access memory models
+- Access AXI interfaces
+- Access AHB interfaces
+- Access TileLink interfaces
+- Perform bus transactions
+- Read hardware registers
+- Write hardware registers
+- Perform actual FIFO accesses
+- Perform actual polling activity
+- Perform actual memory comparisons
+
+The command execution path terminates before backend submission.
+
+---
+
+# 5. Command Processing
+
+Commands are fully parsed and expanded.
 
 Example:
 
+```text
+BURST_WRITE 16 0x1000
+```
+
+DRY_RUN verifies:
+
+- Syntax validity
+- Length validity
+- Address validity
+- Boundary rules
+- Command structure
+
+but never executes the resulting transaction.
+
+---
+
+# 6. Internal Structures
+
+During DRY_RUN the parser may still generate:
+
+```text
+t_cmd
+t_mc_cmd
+```
+
+and internal command representations used by the parser infrastructure.
+
+However:
+
+```text
+No command is submitted to the arbiter.
+No backend execution occurs.
+```
+
+DRY_RUN therefore exercises the parser while bypassing the execution layer.
+
+---
+
+# 7. Output Format
+
+DRY_RUN prints a normalized representation of each command.
+
+Example:
+
+```text
 [DRY_RUN] WRITE       addr=0x80000000 data=0x55
+
 [DRY_RUN] READ        addr=0x80000000
-[DRY_RUN] BURST_WRITE addr=0x9000 len=4 data=[AA BB CC DD]
+
+[DRY_RUN] BURST_WRITE addr=0x9000 len=4
+          data=[AA BB CC DD]
+
 [DRY_RUN] CHECK       addr=0x80000000 expected=0x55
-[DRY_RUN] ATOMIC_BEGIN
-[DRY_RUN]     WRITE   addr=0xA000 data=0x10
-[DRY_RUN]     WRITE   addr=0xA004 data=0x20
-[DRY_RUN] ATOMIC_END
+```
 
-Codice
-
-This output is deterministic and identical across simulators.
+Output is deterministic and independent of simulator choice.
 
 ---
 
-# 5. Error Handling in DRY_RUN
+# 8. Atomic Commands
 
-DRY_RUN detects:
+Atomic execution can be validated without running hardware transactions.
 
-### Syntax errors
-- unknown commands  
-- missing arguments  
-- invalid numbers  
-- malformed bursts  
-- malformed wraps  
+Example:
 
-### Semantic errors
-- misalignment  
-- invalid burst length  
-- invalid wrap length  
-- FIFO misuse  
-- atomic misuse  
+```text
+SET_ATOMIC 1
 
-### Runtime errors
-Not applicable — DRY_RUN does not execute hardware commands.
+WRITE 0x1000 0xAAAA5555
+
+WRITE 0x1004 0x12345678
+
+SET_ATOMIC 0
+```
+
+DRY_RUN verifies:
+
+- Correct atomic structure
+- Correct lock sequencing
+- Correct command grouping
+
+Generated commands may be marked internally with:
+
+```text
+cmd_lock
+```
+
+but no ownership locking is actually performed because the arbiter is bypassed.
 
 ---
 
-# 6. DRY_RUN vs Normal Execution
+# 9. Error Detection
+
+DRY_RUN detects parser-side failures.
+
+---
+
+## Syntax Errors
+
+Examples:
+
+```text
+Unknown commands
+Missing parameters
+Extra parameters
+Malformed numbers
+Malformed expressions
+```
+
+---
+
+## Semantic Errors
+
+Examples:
+
+```text
+Invalid burst length
+Invalid wrap size
+Unsupported FIFO usage
+Invalid polling parameters
+Address violations
+Alignment violations
+```
+
+---
+
+## Include Errors
+
+Examples:
+
+```text
+Missing files
+Recursive includes
+Maximum include depth exceeded
+```
+
+---
+
+## Variable Errors
+
+Examples:
+
+```text
+Undefined variables
+Invalid expressions
+Type conversion failures
+```
+
+---
+
+# 10. Runtime Errors
+
+Runtime execution errors do not exist in DRY_RUN mode.
+
+The following backend-generated signals never occur:
+
+```text
+rsp_valid
+rsp_last
+rsp_end_cmd
+
+rsp_err_valid
+rsp_err_code
+rsp_err_addr
+rsp_err_beat
+rsp_err_id
+```
+
+Because no backend execution occurs, there are no bus-level failures.
+
+---
+
+# 11. DRY_RUN vs Normal Execution
 
 | Feature | Normal Mode | DRY_RUN |
-|---------|-------------|---------|
-| Parse `.cmd` | ✔ | ✔ |
+|----------|-------------|----------|
+| Load file | ✔ | ✔ |
+| Tokenize | ✔ | ✔ |
+| Decode | ✔ | ✔ |
 | Validate syntax | ✔ | ✔ |
 | Validate semantics | ✔ | ✔ |
-| Build command | ✔ | ✔ |
-| Send to arbiter | ✔ | ✘ |
-| Send to backend | ✔ | ✘ |
-| Bus execution | ✔ | ✘ |
-| Receive responses | ✔ | ✘ |
-| CHECK comparison | ✔ | ✘ |
-| Hardware side-effects | ✔ | ✘ |
-| Safe for any device | ✘ | ✔ |
-
-DRY_RUN is guaranteed safe in all environments.
+| Generate micro-commands | ✔ | ✔ |
+| Generate normalized output | Optional | ✔ |
+| Submit commands to arbiter | ✔ | ✘ |
+| Execute backend operations | ✔ | ✘ |
+| Generate bus traffic | ✔ | ✘ |
+| Produce responses | ✔ | ✘ |
+| Modify memory | ✔ | ✘ |
+| Hardware side effects | ✔ | ✘ |
 
 ---
 
-# 7. Typical Use Cases
+# 12. Typical Use Cases
 
-### ✔ Validate a new `.cmd` file  
-Before running on hardware.
+## New Command File Validation
 
-### ✔ Debug command sequences  
-Especially bursts, wraps, FIFO operations.
+Verify command syntax before simulation.
 
-### ✔ Validate atomic blocks  
-Ensure correct structure.
-
-### ✔ Validate CHECK commands  
-Ensure expected values are formatted correctly.
-
-### ✔ Use in CI pipelines  
-DRY_RUN can validate command files without requiring hardware.
-
-### ✔ Use in GHDL or Vivado  
-DRY_RUN works identically in both simulators.
+```text
+memory_test.cmd
+```
 
 ---
 
-# 8. Integration with Simulation Environments
+## Regression Pipelines
 
-DRY_RUN is available in:
+Validate command libraries during CI execution.
 
-- **GHDL** (fast, lightweight, ideal for parser-only validation)
-- **Vivado/xsim** (useful when validating command sequences before waveform simulation)
+```text
+No backend required
+No bus models required
+```
+
+---
+
+## Documentation Examples
+
+Confirm that example command files remain valid.
+
+---
+
+## Parser Development
+
+Verify tokenizer, decoder and validator changes.
+
+---
+
+## Atomic Sequence Validation
+
+Verify:
+
+```text
+SET_ATOMIC
+cmd_lock generation
+sequence ordering
+```
+
+without backend dependencies.
+
+---
+
+# 13. Simulation Environment Support
+
+DRY_RUN works with all supported simulation environments.
+
+Supported:
+
+- GHDL
+- Vivado / XSIM
+- QuestaSim
+- ModelSim
+- Riviera-PRO
+- Xcelium
+- VCS
 
 DRY_RUN does not depend on:
 
-- AXI/AHB wrappers,
-- backend modules,
-- bus signals.
+- Backend models
+- Memory models
+- Bus interfaces
+- Protocol implementations
 
-It can run with only:
-
-- parser,
-- command packages,
-- configuration packages.
+Only the parser infrastructure is required.
 
 ---
 
-# 9. Summary
+# 14. Advantages
 
-DRY_RUN is a safe, non-intrusive mode that:
+DRY_RUN provides:
 
-- validates `.cmd` files,
-- prints normalized commands,
-- detects syntax and semantic errors,
-- avoids all hardware activity,
-- works identically in GHDL and Vivado.
+- Fast validation
+- Deterministic output
+- No hardware interaction
+- No side effects
+- Simulator-independent behavior
+- CI-friendly execution
+- Early error detection
 
-It is the recommended first step before executing any command file on real
-hardware or in full simulation.
+It is typically the first validation stage before full simulation.
+
+---
+
+# 15. Summary
+
+DRY_RUN is a parser-only execution mode that validates command files without interacting with the command execution infrastructure.
+
+It:
+
+- Parses commands
+- Validates syntax
+- Validates semantics
+- Expands commands
+- Generates normalized output
+- Detects parser-side errors
+- Verifies atomic command structures
+- Verifies command sequences
+
+while preventing:
+
+- Arbiter interaction
+- Backend execution
+- Memory modification
+- Bus transactions
+- Hardware side effects
+
+DRY_RUN is the recommended first step before executing complex command sequences in a full DexterLab simulation environment.
 
 ---
 

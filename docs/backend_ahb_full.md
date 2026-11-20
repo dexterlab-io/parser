@@ -1,251 +1,426 @@
-# DexterLab AHB‑FULL Backend
+# DexterLab AHB-FULL Backend
 
-The AHB‑FULL Backend is the executor that converts high‑level parser commands
-(`t_cmd_out`) into real AHB‑FULL transactions.  
-It models the complete AHB protocol:
+The AHB-FULL backend converts high-level parser commands (`t_cmd_out`) into AHB-FULL bus transactions and translates bus responses back into parser responses (`t_rsp_in`).
 
-- HADDR  
-- HWRITE  
-- HSIZE  
-- HBURST  
-- HTRANS  
-- HREADY  
-- HRESP  
-- HRDATA  
+It implements complete support for:
 
-and supports:
+- SINGLE transfers
+- INCR bursts
+- WRAP bursts
+- FIFO transactions
+- Multi-beat operations
+- Wait-state handling
+- Timeout detection
+- Protocol validation
+- Error propagation
 
-- SINGLE transfers  
-- INCR bursts  
-- WRAP bursts  
-- multi‑beat sequences  
-- wait‑states  
-- error propagation  
-
-This backend is used to validate AHB‑FULL behavior in simulation.
+The backend is intended for simulation and verification environments and serves as the AHB counterpart of the AXI-FULL backend.
 
 ---
 
 # 1. Overview
 
-The AHB‑FULL backend receives commands directly from the arbiter and generates
-AHB transactions toward an AHB slave model.
+The backend receives commands from the parser/arbiter infrastructure and executes them over an AHB-FULL bus.
 
-It supports:
+Supported command families include:
 
-- WRITE  
-- READ  
-- CHECK  
-- BURST_WRITE / BURST_READ / BURST_CHECK  
-- WRAP_WRITE / WRAP_READ / WRAP_CHECK  
+- WRITE
+- READ
+- CHECK
+- BURST_WRITE
+- BURST_READ
+- BURST_CHECK
+- WRAP_WRITE
+- WRAP_READ
+- WRAP_CHECK
+- FIFO_WRITE
+- FIFO_READ
+- FIFO_CHECK
 
-and enforces:
+The backend is responsible for:
 
-- correct HTRANS sequencing  
-- correct HBURST encoding  
-- correct address incrementing  
-- correct wrap behavior  
-- correct handling of HREADY wait‑states  
-- correct error propagation (SLVERR, DECERR)
+- AHB transaction generation
+- Address sequencing
+- Burst tracking
+- Wrap address generation
+- Wait-state management
+- Timeout detection
+- Bus error reporting
 
 ---
 
-# 2. Architecture Diagram
+# 2. Architecture
 
 ```mermaid
 flowchart LR
-    A[t_cmd_out] --> B[AHB-FULL Backend]
-    B --> C[AHB Bus Signals]
-    C --> D[AHB Slave Model]
-    D --> C
-    B --> E[t_rsp_in]
-3. AHB‑FULL Signals
-Address + Control
-HADDR
 
-HWRITE
+    P[Parser] --> A[AHB-FULL Backend]
 
-HSIZE
+    A --> B[AHB Bus]
 
-HBURST
+    B --> S[AHB Slave]
 
-HTRANS
+    S --> B
 
-HREADY (input)
+    A --> R[Parser Responses]
+```
 
-HRESP  (input)
+The parser generates protocol-independent commands.
 
-Write Data
-HWDATA
+The backend translates those commands into AHB-FULL transactions.
 
-Read Data
-HRDATA
+---
 
-4. Command Mapping
-Field	Meaning
-cmd_write	1 = write, 0 = read
-cmd_burst	INCR burst
-cmd_wrap	WRAP burst
-cmd_fifo	not used in AHB
-cmd_atomic	atomic mode (arbiter)
-cmd_id	response correlation
-cmd_addr	HADDR
-cmd_len	number of beats (1–256)
-cmd_data	write data array
-cmd_wstrb	ignored (AHB has no strobes)
+# 3. AHB-FULL Signals
 
+## Address and Control
 
-5. AHB‑FULL FSM
-mermaid
-stateDiagram-v2
-    [*] --> IDLE
+- HADDR
+- HWRITE
+- HSIZE
+- HBURST
+- HTRANS
+- HREADY
+- HRESP
 
-    IDLE --> ADDR: cmd_valid
-    ADDR --> DATA: HREADY = 1
-    DATA --> DATA: more beats & HREADY = 1
-    DATA --> RESP: last beat & HREADY = 1
-    RESP --> IDLE: rsp_last = 1
-6. HTRANS Sequencing
-AHB requires:
+## Write Data
 
-first beat: HTRANS = NONSEQ
+- HWDATA
 
-subsequent beats: HTRANS = SEQ
+## Read Data
 
-mermaid
-flowchart LR
-    A[Beat 0] --> B[NONSEQ]
-    B --> C[Beat 1]
-    C --> D[SEQ]
-    D --> E[Beat 2]
-    E --> F[SEQ]
-7. HBURST Encoding
-Burst Type	HBURST
-SINGLE	000
-INCR	001
-WRAP4	010
-INCR4	011
-WRAP8	100
-INCR8	101
-WRAP16	110
-INCR16	111
+- HRDATA
 
+---
 
-The backend selects HBURST based on:
+# 4. Command Mapping
 
-cmd_burst
+| Command Field | AHB Usage |
+|---------------|-----------|
+| cmd_write | HWRITE |
+| cmd_addr | HADDR |
+| cmd_size | HSIZE |
+| cmd_burst | HBURST generation |
+| cmd_wrap | HBURST generation + wrap addressing |
+| cmd_len | Burst length |
+| cmd_data | HWDATA |
+| cmd_id | Response correlation |
+| cmd_wstrb | Validation only |
 
-cmd_wrap
+---
 
-cmd_len
+# 5. Backend State Machine
 
-8. Address Incrementing
-INCR bursts
-mermaid
-flowchart LR
-    A[addr] --> B[addr + 4] --> C[addr + 8] --> D[...]
-WRAP bursts
-mermaid
-flowchart TD
-    A[offset] --> B[offset % (len*4)]
-    B --> C[wrapped address]
-9. Wait‑State Handling (HREADY)
-AHB slaves may insert wait‑states:
+The backend uses the following execution FSM:
 
-mermaid
-flowchart TD
-    A[Beat i] --> B{HREADY?}
-    B -->|Yes| C[Proceed]
-    B -->|No| D[Hold HADDR/HWRITE/HTRANS]
-The backend:
+```text
+IDLE
 
-holds address and control signals when HREADY = 0
+WR_ADDR
+WR_DATA
+WR_RESP
 
-retries the same beat until HREADY = 1
+RD_ADDR
+RD_DATA
+RD_RESP
 
-10. Error Handling (HRESP)
-AHB errors:
+ERR_DRAIN
+```
 
-HRESP = OKAY → normal operation
+State purposes:
 
-HRESP = ERROR → SLVERR or DECERR
+| State | Description |
+|---------|-------------|
+| IDLE | Wait for new command |
+| WR_ADDR | Write address phase |
+| WR_DATA | Write data phase |
+| WR_RESP | Write response phase |
+| RD_ADDR | Read address phase |
+| RD_DATA | Read data phase |
+| RD_RESP | Read response phase |
+| ERR_DRAIN | Synthetic execution phase for pre-bus errors |
 
-The backend maps errors to parser error codes:
+---
 
-HRESP	Parser Error
-OKAY	0x00 (OKAY)
-ERROR	0x02 (SLVERR)
+# 6. Internal Response Pipeline
 
+Responses are generated using a three-phase execution model.
 
-If the address is invalid or a burst crosses a forbidden boundary:
+```text
+Phase 1
+--------
+Command execution
 
-backend generates DECERR (0x03)
+WR_DATA
+RD_DATA
+ERR_DRAIN
 
-11. Write Transaction Flow
-mermaid
-sequenceDiagram
-    participant B as Backend
-    participant S as AHB Slave
+Phase 2
+--------
+Response publication
 
-    B->>S: HADDR, HWRITE=1, HTRANS=NONSEQ
-    S->>B: HREADY
+WR_RESP
+RD_RESP
 
-    loop len beats
-        B->>S: HWDATA[i], HTRANS=SEQ
-        S->>B: HREADY
-    end
+Phase 3
+--------
+Ready for next command
 
-    S->>B: HRESP
-12. Read Transaction Flow
-mermaid
-sequenceDiagram
-    participant B as Backend
-    participant S as AHB Slave
+IDLE
+```
 
-    B->>S: HADDR, HWRITE=0, HTRANS=NONSEQ
-    S->>B: HREADY
+This architecture guarantees deterministic command completion and error reporting.
 
-    loop len beats
-        S->>B: HRDATA[i], HRESP
-        B->>S: HREADY
-    end
-13. Response Mapping
-Write
-HRESP → rsp_err_code
+---
 
-cmd_id → rsp_id
+# 7. HTRANS Sequencing
 
-Read
-HRDATA → rsp_data
+AHB transfers follow standard sequencing rules.
 
-HRESP → rsp_err_code
+First beat:
 
-cmd_id → rsp_id
+```text
+HTRANS = NONSEQ
+```
 
-14. Atomic Mode
-Atomic mode is handled entirely by the arbiter.
-The backend simply executes commands in the order received.
+Following beats:
 
-15. Summary
-The AHB‑FULL backend:
+```text
+HTRANS = SEQ
+```
 
-converts parser commands into AHB transactions
+Example:
 
-supports INCR and WRAP bursts
+```text
+Beat 0 -> NONSEQ
+Beat 1 -> SEQ
+Beat 2 -> SEQ
+Beat 3 -> SEQ
+```
 
-handles wait‑states
+---
 
-enforces HTRANS sequencing
+# 8. HBURST Encoding
 
-enforces HBURST encoding
+The backend generates HBURST values automatically.
 
-handles error propagation
+| Burst Type | HBURST |
+|------------|---------|
+| SINGLE | 000 |
+| INCR | 001 |
+| WRAP4 | 010 |
+| INCR4 | 011 |
+| WRAP8 | 100 |
+| INCR8 | 101 |
+| WRAP16 | 110 |
+| INCR16 | 111 |
 
-returns responses through t_rsp_in
+HBURST is selected from:
 
-is designed for simulation, not synthesis
+- cmd_burst
+- cmd_wrap
+- cmd_len
 
-It is the AHB counterpart of the AXI‑FULL backend and completes DexterLab’s
-dual‑bus support.
+---
 
-End of Document
+# 9. Address Generation
+
+## Incrementing Bursts
+
+```text
+addr
+addr + size
+addr + 2*size
+addr + 3*size
+...
+```
+
+## Wrapping Bursts
+
+The backend computes:
+
+- wrap boundary
+- wrap size
+- wrapped address
+
+according to AHB burst semantics.
+
+Address generation is performed internally and does not depend on the slave.
+
+---
+
+# 10. Wait-State Handling
+
+The backend fully supports slave-generated wait states.
+
+When:
+
+```text
+HREADY = 0
+```
+
+the current transfer is held.
+
+The backend keeps:
+
+- HADDR
+- HWRITE
+- HTRANS
+- HSIZE
+- HBURST
+
+stable until:
+
+```text
+HREADY = 1
+```
+
+---
+
+# 11. Timeout Handling
+
+A timeout counter is active only while waiting for bus completion:
+
+```text
+WR_ADDR
+WR_DATA
+RD_ADDR
+RD_DATA
+```
+
+If the timeout expires:
+
+```text
+AHB_FULL TIMEOUT
+```
+
+is reported to the parser.
+
+---
+
+# 12. Error Handling
+
+The backend detects and reports:
+
+## Bus Errors
+
+```text
+HRESP = ERROR
+```
+
+Mapped to:
+
+```text
+AHB_FULL ERROR
+```
+
+## Timeout
+
+```text
+AHB_FULL TIMEOUT
+```
+
+## Boundary Violations
+
+```text
+AHB_FULL BOUNDARY_ERR
+```
+
+## Invalid Bursts
+
+```text
+AHB_FULL BURST_ERR
+```
+
+## Invalid Write Strobes
+
+```text
+AHB_FULL WSTRB_ERR
+```
+
+Error information includes:
+
+- error code
+- address
+- beat index
+- command ID
+
+---
+
+# 13. Response Generation
+
+Responses returned to the parser include:
+
+```text
+rsp_valid
+rsp_last
+rsp_data
+
+rsp_err_valid
+rsp_err_code
+rsp_err_addr
+rsp_err_beat
+
+rsp_end_cmd
+```
+
+This allows:
+
+- command completion tracking
+- detailed logging
+- error correlation
+- diagnostic reporting
+
+---
+
+# 14. Atomic Mode
+
+Atomic command execution is managed entirely by the arbiter.
+
+The backend executes commands in the order received.
+
+No additional atomic logic is required inside the backend.
+
+---
+
+# 15. Validation Status
+
+Validated through complete regression suites:
+
+- Parser
+- Base
+- FIFO
+- Burst
+- Wrap
+- Fill
+- Poll
+- Dump
+- AHB error injection
+
+Reference result:
+
+```text
+TOTAL EXEC ERRORS = 0
+TOTAL ERRORS      = 0
+SIMULATION RESULT = OK
+```
+
+---
+
+# 16. Summary
+
+The AHB-FULL backend:
+
+- Converts parser commands into AHB-FULL transactions
+- Supports SINGLE, BURST, WRAP and FIFO operations
+- Generates correct HTRANS and HBURST sequences
+- Handles wait states and timeouts
+- Detects and reports bus and protocol errors
+- Implements a unified three-phase response pipeline
+- Returns structured responses through `t_rsp_in`
+
+The module represents the reference AHB-FULL implementation of the DexterLab command-parser ecosystem.
+
+---
+
+# End of Document

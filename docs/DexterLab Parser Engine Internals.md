@@ -1,401 +1,683 @@
-DexterLab Parser Engine Internals
-(Versione 2026 — Tokenizer, Decoder, Validator, Splitter, Executor)
+# DexterLab Parser Engine Internals
 
-The DexterLab Parser Engine is the component that converts textual .cmd files
-into structured hardware commands (t_cmd_out).
-It is designed to be deterministic, extensible, and bus‑agnostic.
+(Version 2026 — Tokenizer, Decoder, Validator, Micro-Command Generator)
 
-This document describes the internal architecture of the parser, including:
+The DexterLab Parser Engine converts textual command files into structured command transactions that can be executed by the DexterLab backend infrastructure.
 
-tokenizer
+The parser is protocol-independent and operates identically regardless of whether commands are executed by:
 
-syntax parser
+- Generic Backend
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
 
-semantic validator
+The parser does not generate bus transactions directly.
 
-command builder
+Its purpose is to:
 
-burst splitter
+- Parse command files
+- Validate commands
+- Expand high-level operations
+- Generate executable micro-commands
+- Build protocol-independent command records
+- Forward commands to the arbiter/backend infrastructure
 
-wrap calculator
+---
 
-boundary checker
+# 1. High-Level Architecture
 
-FIFO handler
+The parser processes commands through multiple stages.
 
-polling engine
-
-dump/check engine
-
-atomic mode controller
-
-ID allocator
-
-This is the definitive reference for contributors and advanced users.
-
-1. High‑Level Architecture
-mermaid
+```mermaid
 flowchart TD
-    A[Tokenizer] --> B[Syntax Parser]
-    B --> C[Semantic Validator]
-    C --> D[Command Builder]
-    D --> E[Burst Splitter]
-    E --> F[Atomic Controller]
-    F --> G[Output: t_cmd_out]
-The parser is fully synchronous and cycle‑accurate in simulation.
 
-2. Tokenizer
-The tokenizer converts raw text lines into structured tokens.
+    A[Tokenizer]
+        --> B[Command Decoder]
 
-Responsibilities
-remove comments
+    B --> C[Syntax Validation]
 
-normalize whitespace
+    C --> D[Semantic Validation]
 
-split tokens
+    D --> E[Micro-Command Generator]
 
-detect numbers (hex, bin, dec)
+    E --> F[Command Builder]
 
-detect identifiers
+    F --> G[t_cmd_out]
 
-detect operators (+, -, =)
+    G --> H[Arbiter]
 
-detect keywords (WRITE, READ, BURST_WRITE, etc.)
+    H --> I[Backend]
+```
 
-Example
+Each stage performs a specific transformation while preserving deterministic behavior.
+
+---
+
+# 2. Internal Command Model
+
+The parser uses two internal command representations.
+
+## Logical Command (`t_cmd`)
+
+Represents a parsed command before expansion.
+
+Contains:
+
+- Command type
+- Address information
+- Length information
+- Data payload
+- Variable references
+- File references
+- Timeout settings
+- Atomic state
+- Error injection information
+
+This structure represents the user's command as written.
+
+---
+
+## Micro-Command (`t_mc_cmd`)
+
+Represents an executable parser operation.
+
+Contains:
+
+- Command type
+- Command ID
+- Address
+- Data
+- Length
+- Timeout information
+- Atomic state
+- Byte-enable information
+- Error injection information
+
+Large logical commands may generate multiple micro-commands.
+
+---
+
+# 3. Tokenizer
+
+The tokenizer converts text into parser tokens.
+
+Responsibilities:
+
+- Remove comments
+- Normalize whitespace
+- Separate operators
+- Detect identifiers
+- Detect numbers
+- Detect strings
+- Detect command names
+
+Supported token types:
+
+```text
+TK_START
+TK_COMMAND
+TK_IDENTIFIER
+TK_NUMBER
+TK_OPERATOR
+TK_STRING
+TK_FILENAME
+TK_END
+```
+
+---
+
+## Example
+
 Input:
 
-Codice
-WRITE BASE_RAM + 0x0100 0x12345678
-Tokens:
+```text
+WRITE BASE_RAM + 0x100 0x12345678
+```
 
-Codice
-WRITE | BASE_RAM | + | 0x0100 | 0x12345678
-3. Syntax Parser
-The syntax parser matches tokens against command templates.
+Token stream:
 
-Example templates
-Codice
+```text
+WRITE
+BASE_RAM
++
+0x100
+0x12345678
+```
+
+---
+
+# 4. Command Decoder
+
+The decoder converts textual command names into:
+
+```text
+t_command
+```
+
+values.
+
+Example:
+
+```text
+WRITE
+```
+
+becomes:
+
+```text
+CMD_WRITE
+```
+
+The decoder is case-insensitive.
+
+Unknown commands become:
+
+```text
+CMD_UNKNOWN
+```
+
+which immediately generate parser errors.
+
+---
+
+# 5. Supported Command Set
+
+The parser currently recognizes:
+
+```text
+CMD_SET_VAR
+CMD_INCLUDE
+CMD_PRINT
+CMD_END_SIM
+
+CMD_SET_ATOMIC
+
+CMD_WAIT_TIME
+CMD_WAIT_CLOCKS
+CMD_WAIT_SIM_TIME
+
+CMD_WSTRB_WRITE
+
+CMD_WRITE
+CMD_READ
+CMD_CHECK
+
+CMD_FIFO_WRITE
+CMD_FIFO_READ
+CMD_FIFO_CHECK
+
+CMD_BURST_WRITE
+CMD_BURST_READ
+CMD_BURST_CHECK
+
+CMD_WRAP_WRITE
+CMD_WRAP_READ
+CMD_WRAP_CHECK
+
+CMD_FILL_LEN
+CMD_FILL_RANGE
+CMD_FILL_CHECK
+
+CMD_POLL_READ
+CMD_POLL_TOGGLE
+
+CMD_TEST_ERROR
+
+CMD_DUMP_LEN
+CMD_DUMP_RANGE
+CMD_DUMP_FILE_LEN
+CMD_DUMP_FILE_RANGE
+CMD_DUMP_FILE_CHECK_LEN
+CMD_DUMP_FILE_CHECK_RANGE
+
+CMD_STOP
+CMD_END_SIM
+```
+
+See:
+
+```text
+command_set.md
+```
+
+for detailed command descriptions.
+
+---
+
+# 6. Syntax Validation
+
+The parser validates command syntax using:
+
+```text
+CMD_SIG
+```
+
+which defines:
+
+- Minimum parameter count
+- Maximum parameter count
+- Expected parameter types
+- Alignment requirements
+- Burst capability
+- Wrap capability
+
+Examples:
+
+```text
 WRITE <addr> <data>
+```
+
+```text
 READ <addr>
-CHECK <addr> <expected>
-BURST_WRITE <addr> <len> <data...>
-FIFO_WRITE <addr> <len> <data...>
-SET_VAR <name> = <value>
-INCLUDE <filename>
-Responsibilities
-detect command type
+```
 
-extract arguments
+```text
+BURST_WRITE <len> <addr>
+```
 
-detect missing arguments
+Any mismatch generates a parser error before command execution.
 
-detect invalid formats
+---
 
-detect malformed numbers
+# 7. Semantic Validation
 
-detect malformed WSTRB masks
+After syntax validation the parser verifies semantic correctness.
 
-Syntax errors are reported immediately.
+Checks include:
 
-4. Semantic Validator
-The semantic validator checks:
+---
 
-Address semantics
-address inside REG/RAM/FIFO
+## Address Validation
 
-address alignment
+- Address format
+- Address alignment
+- Address expression evaluation
 
-FIFO endpoints
+---
 
-wrap boundaries
+## Length Validation
 
-burst boundaries
+- Length > 0
+- Length within supported limits
 
-4KB rule
+---
 
-Length semantics
-len >= 1
+## Burst Validation
 
-len <= 256
+- Supported burst sizes
+- Boundary compliance
 
-correct number of data words
+---
 
-Command semantics
-CHECK requires expected data
+## Wrap Validation
 
-FIFO_READ requires no data
+- Power-of-two wrap sizes
+- Valid wrap configuration
 
-WSTRB_WRITE requires mask
+---
 
-POLL commands require mask/value/attempts/delay
+## FIFO Validation
 
-Variable semantics
-variable exists
+- FIFO command compatibility
+- Parameter consistency
 
-variable is numeric
+---
 
-variable substitution is valid
+## Poll Validation
 
-Semantic errors produce:
+- Timeout limits
+- Delay parameters
+- Mask configuration
 
-DECERR
+---
 
-BOUNDARY_ERR
+# 8. Variable Engine
 
-BURST_ERR
+Variables are created using:
 
-parser‑specific errors
+```text
+SET_VAR
+```
 
-5. Variable Engine
-The parser supports variables:
+Example:
 
-Codice
-SET_VAR BASE_RAM = 0x1000
+```text
+SET_VAR BASE_RAM 0x1000
+```
+
+and can later be used inside expressions.
+
+Example:
+
+```text
 WRITE BASE_RAM + 0x20 0xDEADBEEF
-Features
-integer variables
+```
 
-hex/bin/dec formats
+Supported operations include:
 
-arithmetic (+, -)
+```text
++
+-
+```
 
-nested expressions
+Variables are inherited through include chains.
 
-variable shadowing inside INCLUDE files
+---
 
-Example
-Codice
-SET_VAR A = 0x10
-SET_VAR B = A + 4
-WRITE B 0x12345678
-6. INCLUDE Engine
-The parser supports recursive includes:
+# 9. Include Engine
 
-Codice
-INCLUDE init.cmd
-INCLUDE config/memory_map.cmd
-Features
-nested includes
+The parser supports nested command files.
 
-include stack
+Example:
 
-variable inheritance
+```text
+INCLUDE memory_init.cmd
+```
 
-error propagation
+Capabilities:
 
-infinite recursion detection
+- Nested includes
+- Variable inheritance
+- Include stack tracking
+- Error propagation
 
-7. Command Builder
-The command builder constructs the t_cmd_out record.
+Include recursion is limited by:
 
-Fields
+```text
+C_MAX_INCLUDE_DEPTH
+```
+
+Current default:
+
+```text
+16
+```
+
+---
+
+# 10. Micro-Command Generator
+
+High-level commands are transformed into executable micro-commands.
+
+Examples include:
+
+```text
+BURST commands
+WRAP commands
+FILL operations
+DUMP operations
+POLL operations
+```
+
+The generator creates one or more:
+
+```text
+t_mc_cmd
+```
+
+entries.
+
+The generated commands are stored in:
+
+```text
+t_mc_list
+```
+
+for execution.
+
+---
+
+# 11. Command Builder
+
+The command builder converts micro-commands into:
+
+```text
+t_cmd_out
+```
+
+records.
+
+Generated fields include:
+
+```text
 cmd_write
-
 cmd_burst
-
 cmd_wrap
-
 cmd_fifo
 
-cmd_atomic
-
 cmd_id
-
 cmd_addr
-
 cmd_len
 
-cmd_data[]
-
+cmd_data
 cmd_wstrb
 
-ID Allocation
-Each command receives a unique ID:
+cmd_prot
+cmd_size
+cmd_lock
+cmd_cache
+cmd_qos
 
-Codice
-cmd_id = cmd_id + 1
-Wraps at 2^C_ID_WIDTH.
+cmd_err_code
+```
 
-8. Burst Splitter
-The parser splits bursts automatically:
+These records form the protocol-independent command interface used by all backends.
 
-Conditions
-len > 256
+---
 
-burst crosses 4KB boundary
+# 12. Burst Processing
 
-Example
-Codice
-BURST_WRITE addr len=1024
-Split into:
+The parser supports logical burst commands larger than backend limits.
 
-256
+Example:
 
-256
+```text
+BURST_WRITE 1024 0x1000
+```
 
-256
+Large operations may be internally split into multiple micro-commands.
 
-256
+The splitting mechanism ensures:
 
-4KB Boundary Example
-Codice
-addr = 0x1FF0
-len = 16
-Split into:
+- Backend compatibility
+- Boundary compliance
+- Deterministic execution
 
-burst 0: 0x1FF0 → 0x1FFC
+---
 
-burst 1: 0x2000 → 0x203C
+# 13. Wrap Processing
 
-Backends never need to implement splitting logic.
+Wrap commands define wrapping address behavior.
 
-9. Wrap Calculator
-Wrap bursts use:
+Example:
 
-Codice
-mask = len * 4 bytes
-wrap_base = addr & ~(mask - 1)
-wrapped_addr = wrap_base + (offset % mask)
-The parser computes:
+```text
+WRAP_READ 8 0x2000
+```
 
-wrap mask
+The parser validates:
 
-wrap base
+- Wrap size
+- Alignment
+- Protocol legality
 
-wrapped addresses
+Address generation itself remains backend-specific.
 
-Backends receive pre‑computed addresses.
+The parser does not generate protocol-specific wrap addresses.
 
-10. FIFO Engine
-FIFO commands:
+---
 
-Codice
-FIFO_WRITE <addr> <len> <data...>
-FIFO_READ  <addr> <len>
-FIFO_CHECK <addr> <len> <expected...>
-Responsibilities
-enforce FIFO endpoints
+# 14. FIFO Engine
 
-enforce FIFO semantics
+Supported commands:
 
-detect underflow
+```text
+FIFO_WRITE
+FIFO_READ
+FIFO_CHECK
+```
 
-detect overflow
+The FIFO engine performs:
 
-detect mismatches
+- Parameter validation
+- Command expansion
+- Length verification
+- Consistency checks
 
-11. Polling Engine
-Polling commands:
+Protocol execution remains the responsibility of the backend.
 
-Codice
-POLL_READ <addr> <mask> <value> <attempts> <delay>
-POLL_TOGGLE <addr> <mask> <attempts> <delay>
-POLL_PING <addr> <attempts> <delay>
-Responsibilities
-generate repeated READ commands
+---
 
-check masked values
+# 15. Polling Engine
 
-wait between attempts
+Supported commands:
 
-detect timeout
+```text
+POLL_READ
+POLL_TOGGLE
+```
 
-propagate errors
+The polling engine generates repeated command execution until:
 
-12. Dump/Check Engine
-Dump commands:
+- Success condition met
+- Maximum attempts reached
+- Error detected
 
-Codice
-DUMP_LEN <addr> <len>
-DUMP_RANGE <addr_start> <addr_end>
-DUMP_FILE_LEN <addr> <len>
-DUMP_FILE_RANGE <addr_start> <addr_end>
-DUMP_FILE_CHECK_LEN <addr> <len>
-DUMP_FILE_CHECK_RANGE <addr_start> <addr_end>
-Responsibilities
-read memory
+Capabilities:
 
-format hex lines
+- Delay handling
+- Timeout management
+- Retry generation
 
-write files
+---
 
-compare files
+# 16. Dump and Check Engine
 
-detect mismatches
+Supported commands:
 
-stop at first mismatch
+```text
+DUMP_LEN
+DUMP_RANGE
 
-13. Atomic Mode Controller
-Atomic mode:
+DUMP_FILE_LEN
+DUMP_FILE_RANGE
 
-Codice
-SET_ATOMIC 1
-...
-SET_ATOMIC 0
-Responsibilities
-lock arbiter
+DUMP_FILE_CHECK_LEN
+DUMP_FILE_CHECK_RANGE
+```
 
-prevent interleaving
+Responsibilities:
 
-enforce sequential execution
+- Memory extraction
+- File generation
+- File comparison
+- Verification support
 
-propagate atomic flag in t_cmd_out
+These operations simplify simulation debugging and regression testing.
 
-Atomic mode is enforced at arbiter level.
+---
 
-14. Output Pipeline
-Final output:
+# 17. Atomic Control
 
-Codice
-t_cmd_out → arbiter → backend → bus
-The parser guarantees:
+Atomic execution is controlled through:
 
-valid commands
+```text
+SET_ATOMIC
+```
 
-correct semantics
+When enabled, generated commands are marked for locked execution.
 
-correct splitting
+The command builder propagates:
 
-correct wrap logic
+```text
+cmd_lock
+```
 
-correct FIFO logic
+into generated command records.
 
-correct polling logic
+Ownership protection is enforced by the arbiter.
 
-correct atomic mode
+---
 
-correct ID allocation
+# 18. Error Injection Support
 
-15. Summary
+The parser supports:
+
+```text
+TEST_ERROR
+```
+
+which generates commands containing:
+
+```text
+cmd_err_code
+```
+
+This mechanism is primarily used for:
+
+- Backend verification
+- Error-path testing
+- Regression testing
+
+---
+
+# 19. Output Generation
+
+The parser ultimately produces:
+
+```text
+t_cmd_out
+```
+
+transactions.
+
+Output flow:
+
+```text
+Command File
+      |
+Tokenizer
+      |
+Decoder
+      |
+Validation
+      |
+Micro-Command Generation
+      |
+Command Builder
+      |
+t_cmd_out
+      |
+Arbiter
+      |
+Backend
+```
+
+The parser never interacts directly with bus signals.
+
+---
+
+# 20. Summary
+
 The DexterLab Parser Engine:
 
-tokenizes
+- Tokenizes command files
+- Decodes commands
+- Validates syntax
+- Validates semantics
+- Expands logical commands
+- Generates micro-commands
+- Handles variables
+- Handles include files
+- Handles polling operations
+- Handles dump operations
+- Supports error injection
+- Supports atomic execution
+- Generates protocol-independent `t_cmd_out` transactions
 
-parses
+It is the core translation layer that connects user-readable command scripts to the DexterLab backend execution infrastructure.
 
-validates
+---
 
-builds commands
-
-splits bursts
-
-computes wrap masks
-
-enforces boundaries
-
-handles FIFO
-
-handles polling
-
-handles dump/check
-
-enforces atomic mode
-
-allocates IDs
-
-outputs t_cmd_out deterministically
-
-It is the core of the DexterLab command ecosystem.
-
-End of Document
+# End of Document

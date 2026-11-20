@@ -1,204 +1,532 @@
-markdown
-# DexterLab Command Flow (End-to-End)
+# DexterLab Command Execution Flow
 
-This document describes the complete execution flow of a DexterLab command file,
-from `.cmd` parsing to bus-level execution and response handling.
+This document describes the complete execution flow used by the DexterLab command parser, from command generation to backend execution and response handling.
 
-The flow is identical for AXI-FULL, AXI-LITE, AHB-FULL, AHB-LITE, and TileLink.
-Backends convert the generic command format into protocol-specific bus
-transactions.
+The execution model is shared across all currently supported backends:
 
----
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
+- Generic Backend
 
-# 1. Overview
-
-The full command path is:
-
-file.cmd → parser → arbiter → backend → bus → response → parser
-
-Codice
-
-Each stage is independent and bus-agnostic.
-
-Wrappers no longer exist in DexterLab 2026.
+This common architecture ensures consistent command semantics, error handling, and response generation regardless of the underlying bus protocol.
 
 ---
 
-# 2. Stage 1 — Command File Parsing
+# 1. High-Level Architecture
 
-The parser reads the `.cmd` file line-by-line:
-
-1. remove whitespace  
-2. ignore comments  
-3. tokenize the command  
-4. validate syntax  
-5. validate semantics  
-6. build an internal command structure  
-
-If any error is detected:
-
-- parsing stops  
-- an error message is printed  
-- no hardware command is generated  
-
----
-
-# 3. Stage 2 — Command Translation (`t_cmd_out`)
-
-Each parsed command is converted into a hardware command record:
-
-t_cmd_out
-
-Codice
-
-Fields include:
-
-- write/read flag  
-- address  
-- burst / wrap / FIFO flags  
-- length (1–256 beats)  
-- data words  
-- byte strobes  
-- atomic flag  
-- command ID  
-
-The parser asserts:
-
-cmd_valid = 1
-
-Codice
-
-until the arbiter accepts the command.
-
----
-
-# 4. Stage 3 — Arbiter
-
-The arbiter selects between:
-
-- parser  
-- hardware master (future RISC‑V TileLink master)  
-
-Rules:
-
-- atomic mode locks the active source  
-- pending commands have priority  
-- otherwise, first valid source wins  
-
-Once selected, the arbiter forwards the command directly to the backend.
-
----
-
-# 5. Stage 4 — Backend
-
-The backend converts the generic command into protocol-specific bus transactions:
-
-- **AXI-FULL**: AW/W/B + AR/R  
-- **AXI-LITE**: AW/W/B + AR/R (single beat)  
-- **AHB-FULL**: HADDR/HWRITE/HTRANS/HWDATA/HRDATA  
-- **AHB-LITE**: single-beat AHB transactions  
-- **TileLink Bridge**: TL a/d channels → `t_cmd_out`  
-
-The backend enforces:
-
-- burst rules  
-- wrap rules  
-- alignment  
-- boundary constraints  
-- error detection  
-
-Errors are reported through:
-
-rsp_err_valid = 1
-rsp_err_code
-rsp_err_info
-
-Codice
-
----
-
-# 6. Stage 5 — Bus Execution
-
-The bus executes the transaction:
-
-- single read/write  
-- burst  
-- wrap burst  
-- FIFO operation  
-
-The bus may introduce:
-
-- wait states  
-- backpressure  
-- error responses  
-
-The backend handles these and returns a unified response.
-
----
-
-# 7. Stage 6 — Response (`t_rsp_in`)
-
-The backend returns:
-
-- `rsp_valid`  
-- `rsp_last`  
-- `rsp_data`  
-- `rsp_err_valid`  
-- `rsp_err_code`  
-- `rsp_err_info`  
-- `rsp_id`  
-
-The parser consumes responses until:
-
-rsp_last = 1
-
-Codice
-
-If an error occurs, the parser logs it and stops execution unless configured
-otherwise.
-
----
-
-# 8. End-to-End Example
-
-### File
+The complete command path is:
 
 ```text
-WRITE 0x80000000 0x55
-READ  0x80000000
-Flow
-Parser builds WRITE command
+.cmd File
+    |
+Parser
+    |
+Arbiter
+    |
+Backend
+    |
+Bus
+    |
+Target Device
+```
 
-Arbiter accepts
+Responses return through:
 
-Backend performs AXI/AHB write
+```text
+Target Device
+    |
+Bus
+    |
+Backend
+    |
+Arbiter
+    |
+Parser
+```
 
-Backend returns OKAY
+The parser remains completely protocol-independent.
 
-Parser builds READ command
+All bus-specific behavior is implemented inside the selected backend.
 
-Backend performs read
+---
 
-Backend returns data
+# 2. Execution Pipeline
 
-Parser prints result
+Command execution follows three logical phases.
 
-9. Summary
-The DexterLab command flow is:
+```text
+Phase 1
+--------
+Command execution
 
-parse
+Phase 2
+--------
+Response publication
 
-validate
+Phase 3
+--------
+Parser ready
+```
 
-translate
+This model is used by all current backends.
 
-arbitrate
+---
 
-execute
+# 3. Phase 1 — Command Execution
 
-respond
+The backend receives a command through:
 
-This document defines the complete end-to-end behavior of the DexterLab command
-system.
+```text
+t_cmd_out
+```
 
-End of Document
+and performs the requested operation.
+
+Examples:
+
+```text
+READ
+WRITE
+CHECK
+BURST_READ
+BURST_WRITE
+WRAP_READ
+WRAP_WRITE
+FIFO_READ
+FIFO_WRITE
+```
+
+During this phase the backend:
+
+- Generates bus transactions
+- Tracks burst progress
+- Applies protocol-specific rules
+- Monitors timeout conditions
+- Collects response information
+- Detects runtime errors
+
+Examples:
+
+```text
+AXI:
+    AW/W/B
+    AR/R
+
+AHB:
+    HADDR
+    HTRANS
+    HREADY
+    HRESP
+```
+
+---
+
+# 4. Phase 2 — Response Publication
+
+Once execution is complete, the backend publishes the result.
+
+Normal responses include:
+
+```text
+rsp_valid
+rsp_data
+rsp_last
+```
+
+Error responses include:
+
+```text
+rsp_err_valid
+rsp_err_code
+rsp_err_addr
+rsp_err_beat
+```
+
+The backend may generate:
+
+```text
+OKAY
+ERROR
+TIMEOUT
+BOUNDARY_ERR
+BURST_ERR
+PROT_ERR
+WSTRB_ERR
+```
+
+depending on the active protocol and detected condition.
+
+---
+
+# 5. Phase 3 — Parser Ready
+
+After response publication:
+
+```text
+rsp_end_cmd = 1
+```
+
+is generated.
+
+At this point:
+
+- The current command is complete
+- Internal backend state is released
+- Arbiter ownership may change
+- A new command may be accepted
+
+The backend returns to:
+
+```text
+IDLE
+```
+
+and waits for the next request.
+
+---
+
+# 6. Arbiter Interaction
+
+The arbiter sits between command producers and the selected backend.
+
+```text
+Master(s)
+    |
+Arbiter
+    |
+Backend
+```
+
+The arbiter is responsible for:
+
+- Command selection
+- Source ownership
+- Atomic execution protection
+- Response routing
+
+Backends are not aware of command origin.
+
+They only execute commands presented through `t_cmd_out`.
+
+---
+
+# 7. Atomic Execution
+
+Atomic mode prevents command interleaving.
+
+Example:
+
+```text
+ATOMIC_BEGIN
+
+WRITE ...
+READ ...
+CHECK ...
+
+ATOMIC_END
+```
+
+During an atomic section:
+
+```text
+Source ownership remains locked.
+```
+
+The arbiter cannot switch to another command source until the atomic block completes.
+
+Backend behavior remains unchanged.
+
+---
+
+# 8. Single-Beat Flow
+
+Example:
+
+```text
+READ 0x1000
+```
+
+Execution:
+
+```text
+Parser
+   |
+READ command
+   |
+Arbiter
+   |
+Backend
+   |
+Bus access
+   |
+Response
+   |
+Parser ready
+```
+
+Result:
+
+```text
+rsp_valid = 1
+rsp_last  = 1
+rsp_end_cmd = 1
+```
+
+---
+
+# 9. Multi-Beat Flow
+
+Example:
+
+```text
+BURST_READ 0x1000 4
+```
+
+Execution:
+
+```text
+Beat 0
+Beat 1
+Beat 2
+Beat 3
+```
+
+Responses:
+
+```text
+rsp_valid = 1
+rsp_last  = 0
+
+rsp_valid = 1
+rsp_last  = 0
+
+rsp_valid = 1
+rsp_last  = 0
+
+rsp_valid = 1
+rsp_last  = 1
+```
+
+Command completion:
+
+```text
+rsp_end_cmd = 1
+```
+
+---
+
+# 10. Wrap Flow
+
+Example:
+
+```text
+WRAP_READ 0x2000 8
+```
+
+The backend computes wrapped addresses internally.
+
+Examples:
+
+```text
+0x2000
+0x2004
+0x2008
+0x200C
+0x2000
+...
+```
+
+depending on:
+
+- Transfer size
+- Burst length
+- Protocol rules
+
+The parser is unaware of address generation details.
+
+---
+
+# 11. FIFO Flow
+
+Example:
+
+```text
+FIFO_READ 8
+```
+
+The backend performs sequential accesses to the FIFO region.
+
+Special FIFO semantics are implemented by the target slave model.
+
+The parser sees the operation as a normal command sequence.
+
+---
+
+# 12. Error Flow
+
+When an error occurs:
+
+```text
+rsp_err_valid = 1
+```
+
+The backend generates:
+
+```text
+rsp_err_code
+rsp_err_addr
+rsp_err_beat
+```
+
+Example:
+
+```text
+Burst crosses boundary
+```
+
+Result:
+
+```text
+rsp_err_valid = 1
+
+rsp_err_code = BOUNDARY_ERR
+
+rsp_err_addr = failing address
+
+rsp_err_beat = failing beat
+```
+
+The command is terminated according to backend policy.
+
+---
+
+# 13. Timeout Flow
+
+The backend monitors execution progress while waiting for bus completion.
+
+If a transaction exceeds the configured timeout:
+
+```text
+TIMEOUT
+```
+
+is reported.
+
+Example:
+
+```text
+HREADY remains low
+```
+
+or
+
+```text
+AXI READY never arrives
+```
+
+Result:
+
+```text
+rsp_err_valid = 1
+
+rsp_err_code = TIMEOUT
+```
+
+An error response is generated and execution terminates.
+
+---
+
+# 14. Backend Independence
+
+The parser itself never generates bus transactions.
+
+The parser only produces:
+
+```text
+t_cmd_out
+```
+
+and receives:
+
+```text
+t_rsp_in
+```
+
+This allows the same parser implementation to operate with:
+
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
+- Generic Backend
+- Future protocols
+
+without modification.
+
+---
+
+# 15. Execution State Ownership
+
+Ownership of command execution is distributed as follows:
+
+| Component | Responsibility |
+|------------|---------------|
+| Parser | Command generation |
+| Arbiter | Source selection |
+| Backend | Protocol execution |
+| Slave / Peripheral | Data processing |
+| Parser Response Logic | Reporting and logging |
+
+This separation keeps the architecture modular and scalable.
+
+---
+
+# 16. Summary
+
+The DexterLab execution flow follows a common architecture:
+
+```text
+Parser
+   |
+Arbiter
+   |
+Backend
+   |
+Bus
+   |
+Target
+```
+
+using a unified execution model:
+
+```text
+Phase 1
+--------
+Command execution
+
+Phase 2
+--------
+Response publication
+
+Phase 3
+--------
+Parser ready
+```
+
+This architecture:
+
+- Is protocol-independent
+- Supports AXI, AHB, Generic and future protocols
+- Handles single and multi-beat transactions
+- Supports bursts, wrap and FIFO semantics
+- Provides deterministic response generation
+- Implements unified error reporting
+- Supports atomic execution through the arbiter
+
+It forms the foundation of the DexterLab command-execution ecosystem.
+
+---
+
+# End of Document

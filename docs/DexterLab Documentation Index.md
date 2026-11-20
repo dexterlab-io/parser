@@ -1,194 +1,819 @@
-DexterLab Documentation Index
-(2026 Edition — Unified Command Ecosystem)
+# DexterLab Documentation Index
 
-This index provides a complete overview of all DexterLab documentation.
-It is the recommended entry point for navigating the system, whether you are:
+(Version 2026 — Unified Command Ecosystem)
 
-a new user
+This document provides a structured overview of the complete DexterLab documentation set.
 
-a hardware integrator
+It is the recommended entry point for:
 
-a verification engineer
+- New users
+- Verification engineers
+- Hardware integrators
+- HDL developers
+- Contributors
+- System architects
+- Future RISC-V and TileLink users
 
-a contributor
+The entire documentation reflects the DexterLab v1.1.0 architecture:
 
-or a RISC‑V system designer
+```text
+Parser / Master
+        |
+        v
+     Arbiter
+        |
+        v
+     Backend
+        |
+        v
+       Bus
+```
 
-All documents follow the DexterLab 2026 architecture:
-parser → arbiter → backend → bus, with no wrapper layer.
+No wrapper layer exists in the current architecture.
 
-1. Parser Documentation
-Command File Format
-cmd_file_format.md  
-Syntax of .cmd files, including commands, arguments, bursts, wraps, FIFO,
-atomic blocks, comments, and examples.
+---
 
-Command Interface Specification
-cmd_interface.md  
-Formal definition of t_cmd_out / t_rsp_in, handshake rules, timing,
-atomic mode, AXI/AHB semantics.
+# 1. Core Architecture Documentation
 
-Error Model
-cmd_errors.md  
-Complete list of syntax, semantic, and backend error codes.
+## System Overview
 
-Execution Flow
-cmd_flow.md  
-End‑to‑end pipeline from .cmd file to bus‑level execution.
+### `overview.md`
 
-DRY_RUN Mode
-cmd_dry_run.md  
-Safe validation mode that parses commands without executing them.
+High-level introduction to the DexterLab ecosystem.
 
-Parser Engine Internals
-parser_engine_internals.md  
-Tokenizer, syntax parser, semantic validator, burst splitter, wrap calculator,
-FIFO engine, polling engine, dump/check engine, atomic controller.
+Topics:
 
-Simulation Environments
-cmd_simulation_envs.md  
-Supported simulators: GHDL, Vivado/xsim, QuestaSim, Xcelium, VCS, Riviera‑PRO.
+- Parser architecture
+- Hardware master integration
+- Arbiter architecture
+- Backend layer
+- Supported protocols
+- Verification methodology
 
-2. Master Documentation
-Master Placeholder
-parser_master.md  
-Minimal master generating continuous READs at 0x0000_0000.
+Recommended starting point for all users.
 
-Master Integration Guide
-parser_master_integration.md  
-How hardware masters (RISC‑V, DMA, FPGA logic) generate t_cmd_out.
+---
 
-Master Roadmap
-roadmap_master.md  
-Future evolution: SPI, I2C, UART, CAN, RISC‑V, Ethernet/T1S, RCP, distributed
-systems.
+## Configuration Package
 
-3. Arbiter Documentation
-Arbiter Specification
-arbiter_specification.md  
-Multi‑source arbitration, atomic mode, pending flags, deterministic routing,
-response multiplexing.
+### `cmd_cfg.md`
 
-4. Backend Documentation
-Backend Overview
-backend_overview.md  
-Unified description of all backend types and their roles.
+Documentation of global configuration parameters.
 
-AXI‑FULL Backend
-backend_axi_full.md  
-Full AXI4 protocol implementation.
+Includes:
 
-AXI‑LITE Backend
-backend_axi_lite.md  
-Single‑beat AXI‑Lite protocol.
+- Address width
+- Data width
+- Command ID width
+- Timeout settings
+- Parser limits
+- Include depth
+- Logging controls
+- Internal buffer configuration
 
-AHB‑FULL Backend
-backend_ahb_full.md  
-Full AHB protocol implementation.
+---
 
-AHB‑LITE Backend
-backend_ahb_lite.md  
-Simplified AHB protocol.
+## Command Interface
 
-Generic Backend
-backend_generic.md  
-Pure VHDL simulation backend.
+### `cmd_interface.md`
 
-TileLink Bridge
-tilelink_bridge.md  
-TL‑UL/UH → t_cmd_out conversion for RISC‑V systems.
+Formal specification of:
 
-5. Memory Map Documentation
-DexterLab Address Map
-address_map.md  
-REG, RAM, FIFO regions, burst/wrap semantics, 4KB boundary rules, error
-conditions, extension guidelines.
+```text
+t_cmd_out
+t_rsp_out
+t_rsp_in
+```
 
-6. Testbench Documentation
-Testbench Architecture
-testbench_architecture.md  
-Parser, master, arbiter, backend, memory models, waveform dump, DRY_RUN,
-sequencer.
+Topics:
 
-7. Quickstart Documentation
-Quickstart Guide
-quickstart.md  
-Installation, compilation, first .cmd file, DRY_RUN, waveform inspection,
-backend switching.
+- Interface fields
+- Flow control
+- Handshake semantics
+- Response handling
+- Lock semantics
+- Command completion model
 
-8. Glossary
-DexterLab Glossary
-glossary.md  
-Definitions of all core terms: parser, arbiter, backend, FIFO, burst, wrap,
-atomic, error codes, TileLink, AXI, AHB.
+---
 
-9. Document Organization Philosophy
-DexterLab documentation is:
+## Command Flow
 
-Modular — each file covers one topic
+### `cmd_flow.md`
 
-Bus‑agnostic — AXI/AHB/TileLink share the same command interface
+Describes the complete command execution architecture.
 
-Extensible — new backends and masters can be added without breaking existing documents
+Execution path:
 
-Simulation‑neutral — works with GHDL, Vivado, and any professional simulator
+```text
+Command Source
+      |
+      v
+   Arbiter
+      |
+      v
+   Backend
+      |
+      v
+      Bus
+```
 
-Readable — diagrams, examples, and clear structure
+Topics:
 
-10. Recommended Reading Order
-If you are new:
+- Command acceptance
+- Execution phases
+- Response publication
+- Command completion
+
+---
+
+## Error Model
+
+### `cmd_errors.md`
+
+Defines the unified DexterLab error model.
+
+Coverage includes:
+
+- Parser errors
+- Validation errors
+- Runtime errors
+- AXI-FULL mappings
+- AXI-LITE mappings
+- AHB-FULL mappings
+- AHB-LITE mappings
+
+---
+
+# 2. Command Language Documentation
+
+## Command File Format
+
+### `cmd_file_format.md`
+
+Defines the syntax and structure of DexterLab command files.
+
+Topics include:
+
+- Variables
+- Include files
+- Expressions
+- Comments
+- Numeric formats
+- SET_ATOMIC-based execution
+- Command examples
+
+---
+
+## Command Set Reference
+
+### `command_set.md`
+
+Complete reference for all supported commands.
+
+Includes:
+
+### Utility Commands
+
+```text
+PRINT
+SET_VAR
+INCLUDE
+
+WAIT_TIME
+WAIT_CLOCKS
+WAIT_SIM_TIME
+
+STOP
+END_SIM
+```
+
+### Memory Commands
+
+```text
+READ
+WRITE
+CHECK
+WSTRB_WRITE
+```
+
+### Burst Commands
+
+```text
+BURST_READ
+BURST_WRITE
+BURST_CHECK
+```
+
+### Wrap Commands
+
+```text
+WRAP_READ
+WRAP_WRITE
+WRAP_CHECK
+```
+
+### FIFO Commands
+
+```text
+FIFO_READ
+FIFO_WRITE
+FIFO_CHECK
+```
+
+### Fill Commands
+
+```text
+FILL_LEN
+FILL_RANGE
+FILL_CHECK
+```
+
+### Poll Commands
+
+```text
+POLL_READ
+POLL_TOGGLE
+```
+
+### Dump Commands
+
+```text
+DUMP_LEN
+DUMP_RANGE
+
+DUMP_FILE_LEN
+DUMP_FILE_RANGE
+
+DUMP_FILE_CHECK_LEN
+DUMP_FILE_CHECK_RANGE
+```
+
+### Error Injection
+
+```text
+TEST_ERROR
+```
+
+---
+
+## DRY_RUN Mode
+
+### `cmd_dry_run.md`
+
+Parser-only validation mode.
+
+Features:
+
+- Parsing
+- Syntax validation
+- Semantic validation
+- Command normalization
+
+Without:
+
+- Arbiter interaction
+- Backend execution
+- Bus activity
+
+Typical uses:
+
+- CI pipelines
+- Parser validation
+- Documentation verification
+- Command debugging
+
+---
+
+# 3. Parser Documentation
+
+## Parser Engine Internals
+
+### `DexterLab Parser Engine Internals.md`
+
+Detailed implementation description of the parser.
+
+Topics include:
+
+- Tokenizer
+- Command Decoder
+- Syntax Validation
+- Semantic Validation
+- Variable Engine
+- Include Engine
+- Micro-Command Generator
+- Command Builder
+- Polling Engine
+- Dump Engine
+- Atomic command handling
+- Wrap validation
+
+This is the primary document for parser developers.
+
+---
+
+# 4. Arbiter Documentation
+
+## Arbiter Specification
+
+### `DexterLab Arbiter Specification.md`
+
+Formal specification of:
+
+```text
+arbiter_mux
+```
+
+Topics include:
+
+- FSM architecture
+- Ownership tracking
+- Pending-command handling
+- Command routing
+- Response routing
+- Locked execution via `cmd_lock`
+- Arbitration behavior
+
+---
+
+## Arbiter Overview
+
+### `master_arbiter.md`
+
+High-level architectural overview of the multi-source arbiter.
+
+Topics:
+
+- Parser ownership
+- Hardware master ownership
+- Backend access
+- Response routing
+- Multi-source operation
+
+---
+
+# 5. Backend Documentation
+
+Backend documentation explains how protocol-independent commands are translated into backend-specific behavior.
+
+---
+
+## Backend Overview
+
+### `DexterLab Backend Overview.md`
+
+High-level description of the backend layer.
+
+Topics:
+
+- Backend responsibilities
+- Common execution model
+- Error propagation
+- Protocol abstraction
+
+---
+
+## Generic Backend
+
+### `backend_generic.md`
+
+Reference execution backend.
+
+Features:
+
+- Internal memory models
+- Burst support
+- Wrap support
+- FIFO support
+- Polling support
+- Fill operations
+- Dump operations
+
+Primarily used for:
+
+- Parser development
+- Regression testing
+- Continuous integration
+
+---
+
+## AXI-FULL Backend
+
+### `backend_axi_full.md`
+
+Features:
+
+- Full AXI4 protocol
+- Multi-beat bursts
+- Wrap support
+- WSTRB support
+- Multi-ID support
+- Timeout handling
+
+---
+
+## AXI-LITE Backend
+
+### `backend_axi_lite.md`
+
+Features:
+
+- Single-beat transactions
+- MMIO operation
+- WSTRB support
+- Simplified execution model
+
+---
+
+## AHB-FULL Backend
+
+### `backend_ahb_full.md`
+
+Features:
+
+- HBURST support
+- Multi-beat transfers
+- Wrap support
+- Wait-state handling
+- Timeout management
+
+---
+
+## AHB-LITE Backend
+
+### `backend_ahb_lite.md`
+
+Features:
+
+- Internal burst sequencing
+- Wrap address generation
+- Wait-state support
+- Lightweight protocol model
+
+---
+
+## TileLink Bridge
+
+### `tilelink_bridge.md`
+
+Integration layer between:
+
+```text
+TileLink
+```
+
+and:
+
+```text
+t_cmd_out
+```
+
+Supports:
+
+```text
+TL-UL
+TL-UH
+```
+
+and future RISC-V integration.
+
+---
+
+## Bus Comparison
+
+### `bus_comparison.md`
+
+Compares:
+
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
+- TileLink
+
+Including:
+
+- Features
+- Performance
+- Complexity
+- Recommended use cases
+
+---
+
+# 6. Hardware Master Documentation
+
+## Hardware Command Master
+
+### `parser_master.md`
+
+Documents the current hardware master implementation.
+
+Current behavior:
+
+- Continuous READ generation
+- Protocol-independent operation
+- Placeholder architecture
+
+Used for:
+
+- Arbiter validation
+- Multi-source testing
+
+---
+
+## Master Integration Guide
+
+### `parser_master_integration.md`
+
+Explains how custom command generators integrate with DexterLab.
+
+Topics:
+
+- `t_cmd_out`
+- `t_rsp_out`
+- `t_rsp_in`
+- Arbiter interaction
+- Response handling
+- Ownership tracking
+
+---
+
+## Master Roadmap
+
+### `roadmap_master.md`
+
+Future directions for hardware command generation.
+
+Potential integrations:
+
+- SPI
+- I²C
+- UART
+- CAN
+- DMA engines
+- RISC-V systems
+- Ethernet
+- Distributed command networks
+
+---
+
+# 7. Memory Map Documentation
+
+## Address Map
+
+### `DexterLab Address Map.md`
+
+Defines the default memory layout.
+
+Regions:
+
+```text
+REG
+RAM
+FIFO
+```
+
+Topics:
+
+- Address ranges
+- Command applicability
+- Boundary rules
+- Extension guidelines
+
+---
+
+# 8. Verification Documentation
+
+## Testbench Architecture
+
+### `DexterLab Testbench Architecture.md`
+
+Complete simulation environment description.
+
+Topics:
+
+- Parser Engine
+- Hardware Master
+- Arbiter
+- Backend Layer
+- REG/RAM/FIFO Models
+- DRY_RUN Integration
+- TileLink Integration
+- Regression Execution
+
+---
+
+## Simulation Environments
+
+### `cmd_simulation_envs.md`
+
+Supported environments:
+
+### Open Source
+
+- GHDL
+
+### FPGA Toolchains
+
+- Vivado / XSIM
+
+### Commercial Simulators
+
+- QuestaSim
+- ModelSim
+- Riviera-PRO
+- Xcelium
+- VCS
+
+Topics:
+
+- Build flows
+- Waveform support
+- DRY_RUN execution
+- CI integration
+
+---
+
+## Quickstart Guide
+
+### `DexterLab Quickstart Guide.md`
+
+Practical introduction to the framework.
+
+Topics:
+
+- Installation
+- First simulation
+- First command file
+- Waveform debugging
+- DRY_RUN usage
+- Backend selection
+
+Recommended for first-time users.
+
+---
+
+# 9. Reference Documentation
+
+## Glossary
+
+### `DexterLab Glossary.md`
+
+Unified terminology reference.
+
+Includes:
+
+- Parser terminology
+- Interface terminology
+- Backend terminology
+- Arbiter terminology
+- Verification terminology
+- Memory-map terminology
+
+---
+
+## Architecture Diagrams
+
+### `architecture_diagrams.md`
+
+Collection of architecture and execution-flow diagrams.
+
+Topics:
+
+- Parser pipeline
+- Arbitration
+- Backend selection
+- Burst processing
+- Polling
+- FIFO operations
+- Error propagation
+- Verification architecture
+
+---
+
+## Documentation Overview
+
+### `docs/README.md`
+
+General entry point into the documentation tree.
+
+---
+
+# 10. Documentation Philosophy
+
+The DexterLab documentation follows several principles.
+
+### Modular
+
+Each document focuses on a single subsystem.
+
+### Protocol Independent
+
+Command semantics remain identical across all supported backends.
+
+### Verification Oriented
+
+Documentation reflects actual HDL behavior.
+
+### Extensible
+
+New backends and command generators can be added without restructuring the framework.
+
+### Simulator Neutral
+
+Documentation applies equally to open-source and commercial simulators.
+
+### Traceable
+
+Parser, arbiter, backend and error-model behavior are documented consistently.
+
+---
+
+# 11. Recommended Reading Order
+
+## New Users
+
+```text
+overview.md
+
 cmd_file_format.md
+
+command_set.md
 
 cmd_interface.md
 
 cmd_flow.md
 
-quickstart.md
+cmd_errors.md
 
-testbench_architecture.md
+DexterLab Quickstart Guide.md
 
-If you are integrating hardware:
-backend_overview.md
+DexterLab Testbench Architecture.md
+```
 
-arbiter_specification.md
+---
+
+## Hardware Integrators
+
+```text
+DexterLab Backend Overview.md
+
+DexterLab Arbiter Specification.md
 
 parser_master_integration.md
 
 tilelink_bridge.md
 
-address_map.md
+DexterLab Address Map.md
+```
 
-If you are contributing:
-parser_engine_internals.md
+---
 
-arbiter_specification.md
+## Contributors
+
+```text
+DexterLab Parser Engine Internals.md
+
+DexterLab Arbiter Specification.md
 
 backend_generic.md
 
 cmd_errors.md
+```
 
-11. Summary
+---
+
+# 12. Summary
+
 The DexterLab documentation suite provides:
 
-complete parser documentation
+- Complete command-language documentation
+- Complete parser documentation
+- Complete arbiter specification
+- Complete backend documentation
+- Complete hardware-master documentation
+- Complete memory-map documentation
+- Complete verification documentation
+- Quickstart materials
+- Unified glossary
+- Architecture diagrams
 
-complete backend documentation
+All documentation reflects the DexterLab v1.1.0 architecture:
 
-complete arbiter specification
+```text
+Parser / Master
+        |
+        v
+     Arbiter
+        |
+        v
+     Backend
+        |
+        v
+       Bus
+```
 
-complete master roadmap
+and serves as the primary technical reference for development, verification, integration, and future expansion of the DexterLab ecosystem.
 
-complete memory map
+---
 
-complete testbench architecture
-
-quickstart guide
-
-glossary
-
-unified index
-
-This index serves as the official entry point for navigating the DexterLab
-documentation.
-
-End of Document
+# End of Document

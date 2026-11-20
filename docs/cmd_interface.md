@@ -1,269 +1,423 @@
-markdown
 # DexterLab Command Interface
 
-The DexterLab command interface defines the hardware protocol used to transmit
-commands (`t_cmd_out`) from the parser or hardware master to the arbiter and
-backend, and to receive responses (`t_rsp_in`) from the backend.
+This document defines the protocol-independent command and response interfaces used throughout the DexterLab ecosystem.
 
-This document describes the fields, timing rules, semantics, and usage of both
-interfaces.
+The interface is shared by:
+
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
+- Generic Backend
+- Future protocol integrations
+
+The goal is to keep the parser completely independent from the underlying bus architecture.
 
 ---
 
 # 1. Overview
 
-DexterLab uses two record types:
+The DexterLab architecture is based on three interfaces:
 
-- `t_cmd_out` — command sent to the arbiter/backend  
-- `t_rsp_in` — response returned by the backend  
+```text
+t_cmd_out
+t_rsp_out
+t_rsp_in
+```
 
-The interface is **bus‑agnostic**: AXI‑FULL, AXI‑LITE, AHB‑FULL, AHB‑LITE, and
-TileLink all use the same command format.
+which connect:
+
+```text
+Parser
+   |
+Arbiter
+   |
+Backend
+```
+
+The parser generates commands using `t_cmd_out`.
+
+The backend executes those commands and returns responses using `t_rsp_in`.
+
+The parser advertises its response acceptance status through `t_rsp_out`.
 
 ---
 
-# 2. Command Interface (`t_cmd_out`)
+# 2. Command Interface (t_cmd_out)
 
-A command describes a single operation or a burst of operations.
+`t_cmd_out` describes a protocol-independent transaction request.
 
-## 2.1 Fields
+It contains all information required by a backend to execute:
+
+- READ operations
+- WRITE operations
+- BURST operations
+- WRAP operations
+- FIFO operations
+
+---
+
+## 2.1 Command Structure
 
 | Field | Type | Description |
-|-------|------|-------------|
+|---------|---------|-------------|
 | `cmd_write` | std_logic | 1 = write, 0 = read |
-| `cmd_addr` | unsigned | start address |
-| `cmd_len` | natural | number of beats (1–256) |
-| `cmd_burst` | std_logic | 1 = INCR burst |
-| `cmd_wrap` | std_logic | 1 = WRAP burst |
-| `cmd_fifo` | std_logic | 1 = FIFO mode |
-| `cmd_atomic` | std_logic | 1 = atomic block |
+| `cmd_burst` | std_logic | multi-beat transfer |
+| `cmd_wrap` | std_logic | wrap addressing enabled |
+| `cmd_fifo` | std_logic | FIFO addressing enabled |
 | `cmd_id` | unsigned | command identifier |
-| `cmd_data` | array | write data words |
-| `cmd_wstrb` | std_logic_vector | byte mask |
-| `cmd_valid` | std_logic | command valid |
-| `cmd_ready` | std_logic | backend ready |
-
-Notes:
-
-- `cmd_len = 1` → single beat  
-- `cmd_len > 1` → burst  
-- `cmd_wrap = 1` → wrap burst (length must be power‑of‑two)  
-- `cmd_fifo = 1` → FIFO operations  
-- `cmd_atomic = 1` → arbiter locks the source  
+| `cmd_addr` | std_logic_vector | start address |
+| `cmd_len` | natural | transfer length (0–256) |
+| `cmd_data` | t_data_array | write payload data |
+| `cmd_wstrb` | std_logic_vector | write strobe mask |
+| `cmd_prot` | std_logic_vector(2 downto 0) | protection attributes |
+| `cmd_size` | std_logic_vector(2 downto 0) | bytes per beat |
+| `cmd_lock` | std_logic | lock attribute |
+| `cmd_cache` | std_logic_vector(3 downto 0) | cache attributes |
+| `cmd_qos` | std_logic_vector(3 downto 0) | QoS attributes |
+| `cmd_err_code` | std_logic_vector(7 downto 0) | synthetic error code used by TEST_ERROR |
 
 ---
 
-# 3. Response Interface (`t_rsp_in`)
+## 2.2 Basic Access Types
 
-A response describes the result of a command.
+### Single Read
 
-## 3.1 Fields
+```text
+cmd_write = 0
+cmd_len   = 1
+cmd_burst = 0
+```
+
+---
+
+### Single Write
+
+```text
+cmd_write = 1
+cmd_len   = 1
+cmd_burst = 0
+```
+
+---
+
+### Burst Transfer
+
+```text
+cmd_burst = 1
+cmd_len   > 1
+```
+
+The backend determines how the burst is implemented according to the target protocol.
+
+---
+
+### Wrap Transfer
+
+```text
+cmd_wrap = 1
+```
+
+Wrap address generation is handled by the backend.
+
+---
+
+### FIFO Transfer
+
+```text
+cmd_fifo = 1
+```
+
+FIFO semantics are implemented by the target backend and slave model.
+
+---
+
+# 3. Parser Response Control Interface (t_rsp_out)
+
+`t_rsp_out` allows the parser to advertise whether it is ready to receive responses.
+
+---
+
+## 3.1 Structure
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `rsp_valid` | std_logic | response valid |
-| `rsp_last` | std_logic | last beat of burst |
-| `rsp_data` | unsigned | read data |
-| `rsp_err_valid` | std_logic | error flag |
-| `rsp_err_code` | unsigned | error code |
-| `rsp_err_info` | unsigned | failing address |
-| `rsp_id` | unsigned | command identifier |
+|---------|---------|-------------|
+| `rsp_ready` | std_logic | parser ready for data responses |
+| `rsp_err_ready` | std_logic | parser ready for error responses |
 
 ---
 
-# 4. Timing Rules
+## 3.2 Typical Usage
 
-The interface uses a standard **valid/ready handshake**.
-
-## 4.1 Command Handshake
-
-cmd_valid = 1
-cmd_ready = 1   → command accepted
-
-Codice
-
-Rules:
-
-- `cmd_valid` must remain high until `cmd_ready = 1`.  
-- After acceptance, the master may deassert `cmd_valid`.  
-- Only one command may be active at a time.  
-
----
-
-## 4.2 Response Handshake
-
-Responses are always accepted:
-
-rsp_ready = 1
+```text
+rsp_ready     = 1
 rsp_err_ready = 1
+```
 
-Codice
-
-Rules:
-
-- `rsp_valid = 1` indicates a valid response beat.  
-- `rsp_last = 1` indicates the final beat.  
-- Errors may be signaled at any beat.  
+indicates that the parser can accept both data and error reports.
 
 ---
 
-# 5. Command Semantics
+# 4. Backend Response Interface (t_rsp_in)
 
-## 5.1 Single Write
+`t_rsp_in` contains all information generated by the backend after command execution.
 
-cmd_write = 1
-cmd_len   = 1
-
-Codice
-
-## 5.2 Single Read
-
-cmd_write = 0
-cmd_len   = 1
-
-Codice
-
-## 5.3 Burst Write
-
-cmd_write = 1
-cmd_burst = 1
-cmd_len   = N
-
-Codice
-
-## 5.4 Burst Read
-
-cmd_write = 0
-cmd_burst = 1
-cmd_len   = N
-
-Codice
-
-## 5.5 Wrap Burst
-
-cmd_wrap = 1
-cmd_len  = power-of-two
-
-Codice
-
-## 5.6 FIFO Operations
-
-cmd_fifo = 1
-
-Codice
-
-## 5.7 Atomic Mode
-
-cmd_atomic = 1
-
-Codice
-
-Atomic mode prevents the arbiter from switching masters.
+The same structure is used by all supported protocols.
 
 ---
 
-# 6. Response Semantics
+## 4.1 Structure
 
-## 6.1 Successful Read
+| Field | Type | Description |
+|---------|---------|-------------|
+| `rsp_end_cmd` | std_logic | command execution completed |
+| `rsp_valid` | std_logic | valid response data |
+| `rsp_last` | std_logic | last beat of transfer |
+| `rsp_data` | std_logic_vector | read data |
+| `rsp_id` | std_logic_vector | command identifier |
+| `rsp_err_valid` | std_logic | error report valid |
+| `rsp_err_code` | std_logic_vector(7 downto 0) | error code |
+| `rsp_err_addr` | std_logic_vector | failing address |
+| `rsp_err_beat` | std_logic_vector(7 downto 0) | failing beat index |
+| `rsp_err_id` | std_logic_vector | command identifier associated with the error |
 
+---
+
+# 5. Response Semantics
+
+Responses are generated according to the common DexterLab execution model.
+
+```text
+Phase 1
+--------
+Command execution
+
+Phase 2
+--------
+Response publication
+
+Phase 3
+--------
+Parser ready
+```
+
+---
+
+## 5.1 Read Response
+
+Example:
+
+```text
 rsp_valid = 1
-rsp_data  = data
+rsp_data  = 0x12345678
 rsp_last  = 1
+```
 
-Codice
+---
 
-## 6.2 Successful Write
+## 5.2 Write Response
 
-Writes return only:
+Successful writes typically generate:
 
+```text
+rsp_valid   = 1
+rsp_last    = 1
+rsp_end_cmd = 1
+```
+
+No read data is returned.
+
+---
+
+## 5.3 Multi-Beat Response
+
+Example:
+
+```text
+Beat 0:
+rsp_valid = 1
+rsp_last  = 0
+
+Beat 1:
+rsp_valid = 1
+rsp_last  = 0
+
+Beat 2:
+rsp_valid = 1
+rsp_last  = 0
+
+Beat 3:
 rsp_valid = 1
 rsp_last  = 1
+```
 
-Codice
+Command completion:
 
-## 6.3 Error Response
+```text
+rsp_end_cmd = 1
+```
 
+---
+
+# 6. Error Reporting
+
+Runtime errors are reported independently from normal data responses.
+
+Error information includes:
+
+```text
+rsp_err_valid
+rsp_err_code
+rsp_err_addr
+rsp_err_beat
+rsp_err_id
+```
+
+---
+
+## 6.1 Error Example
+
+```text
 rsp_err_valid = 1
-rsp_err_code  = <error>
-rsp_err_info  = <address>
 
-Codice
+rsp_err_code = 54
 
-Errors may occur:
+rsp_err_addr = 0x00001FFC
 
-- at the first beat,  
-- during a burst,  
-- at the last beat.  
+rsp_err_beat = 3
 
----
+rsp_err_id = 17
+```
 
-# 7. Error Codes (Updated 2026)
+This indicates:
 
-| Code | Meaning |
-|------|---------|
-| `0x00` | OKAY |
-| `0x02` | SLVERR |
-| `0x03` | DECERR |
-| `0x05` | CHECK_ERR |
-| `0x06` | BOUNDARY_ERR |
-| `0x07` | BURST_ERR |
-| `0x08` | FIFO_ERR |
+```text
+AHB_LITE BOUNDARY_ERR
+```
 
-Notes:
-
-- Codes are unified across AXI‑FULL, AXI‑LITE, AHB‑FULL, AHB‑LITE, Generic Backend.  
-- TileLink bridge maps TL errors into the same code set.  
+on beat 3 of command ID 17.
 
 ---
 
-# 8. ID Matching
+# 7. Command Completion
 
-`cmd_id` is copied into `rsp_id`.
+A command is considered complete when:
 
-This allows:
+```text
+rsp_end_cmd = 1
+```
 
-- multiple masters,  
-- out‑of‑order responses (AXI‑FULL),  
-- correlation of commands and responses.  
+is asserted.
 
----
+This signal indicates:
 
-# 9. End-to-End Example
-
-### Command
-
-cmd_write = 0
-cmd_addr  = 0x80000000
-cmd_len   = 4
-cmd_burst = 1
-cmd_valid = 1
-
-Codice
-
-### Response
-
-Beat 0: rsp_valid=1, rsp_last=0, rsp_data=0xAA
-Beat 1: rsp_valid=1, rsp_last=0, rsp_data=0xBB
-Beat 2: rsp_valid=1, rsp_last=0, rsp_data=0xCC
-Beat 3: rsp_valid=1, rsp_last=1, rsp_data=0xDD
-
-Codice
+- Backend execution finished
+- Responses have been generated
+- Internal resources have been released
+- Arbiter ownership may change
+- The next command may be accepted
 
 ---
 
-# 10. Summary
+# 8. Command Correlation
 
-The DexterLab command interface:
+Every command carries:
 
-- is bus‑agnostic  
-- supports single, burst, wrap, FIFO, and atomic operations  
-- uses a simple valid/ready handshake  
-- provides unified error reporting  
-- supports multiple masters via `cmd_id`  
-- is designed for simulation and hardware integration  
+```text
+cmd_id
+```
 
-This document defines the complete hardware protocol used by the parser,
-arbiter, backend, and future masters.
+which is returned as:
+
+```text
+rsp_id
+```
+
+for data responses and:
+
+```text
+rsp_err_id
+```
+
+for error reports.
+
+This mechanism enables:
+
+- Multi-master arbitration
+- Response correlation
+- Debugging and traceability
+- Verification logging
+
+---
+
+# 9. Protocol Independence
+
+The parser generates the same command structure regardless of the target protocol.
+
+Example:
+
+```text
+t_cmd_out
+```
+
+may be executed by:
+
+- AXI-FULL
+- AXI-LITE
+- AHB-FULL
+- AHB-LITE
+- Generic Backend
+
+without any change to parser logic.
+
+Protocol-specific implementation details remain entirely inside the backend.
+
+---
+
+# 10. Relationship with Error Database
+
+Runtime error codes are defined by the unified DexterLab error database.
+
+Supported ranges:
+
+| Protocol | Error Range |
+|----------|-------------|
+| AXI-FULL | 0–15 |
+| AXI-LITE | 16–31 |
+| AHB-FULL | 32–47 |
+| AHB-LITE | 48–63 |
+
+See:
+
+```text
+cmd_errors.md
+```
+
+for the complete error specification.
+
+---
+
+# 11. Summary
+
+The DexterLab command interface provides:
+
+- Protocol-independent command execution
+- Unified response handling
+- Unified error reporting
+- Multi-beat transfer support
+- Burst, wrap and FIFO support
+- Command correlation through IDs
+- Backend-independent parser operation
+
+The interfaces
+
+```text
+t_cmd_out
+t_rsp_out
+t_rsp_in
+```
+
+form the foundation of communication between the parser, arbiter and all current and future DexterLab backends.
 
 ---
 

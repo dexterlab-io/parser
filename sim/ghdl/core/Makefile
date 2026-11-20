@@ -106,7 +106,7 @@ elab:
 
 sim:
 	echo Simulating
-	ghdl -r $(TOP) $(WAVECMD) --stop-time=200us
+	ghdl -r $(TOP) $(WAVECMD) --stop-time=400us
 
 wave:
 	echo Wave
